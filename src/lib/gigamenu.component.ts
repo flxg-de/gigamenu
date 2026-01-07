@@ -14,7 +14,7 @@ import {
 import { isPlatformBrowser, NgTemplateOutlet } from '@angular/common';
 import { GigamenuService } from './gigamenu.service';
 import { FrecencyService } from './frecency.service';
-import { GigamenuItem, PARAM_COLORS } from './types';
+import { GigamenuItem, PARAM_COLORS, AutocompleteOption, ParamProvider } from './types';
 import {
   GigamenuItemTemplate,
   GigamenuEmptyTemplate,
@@ -54,6 +54,18 @@ export class GigamenuComponent {
   protected readonly query = signal('');
   protected readonly selectedIndex = signal(0);
 
+  // Autocomplete state
+  protected readonly autocompleteSuggestions = signal<AutocompleteOption[]>([]);
+  protected readonly autocompleteSelectedIndex = signal(0);
+  protected readonly showAutocomplete = signal(false);
+  private autocompleteCache = new Map<string, AutocompleteOption[]>();
+
+  // Track selected autocomplete options: maps param index to {label, value}
+  // This allows displaying labels in the search bar while remembering values for execution
+  private readonly selectedParamOptions = signal<Map<number, AutocompleteOption>>(new Map());
+
+  private readonly autocompleteContainer = viewChild<ElementRef<HTMLDivElement>>('autocompleteContainer');
+
   /** Parsed search term (before first separator) */
   protected readonly searchTerm = computed(() => {
     const q = this.query();
@@ -79,11 +91,65 @@ export class GigamenuComponent {
     return q.includes(separator);
   });
 
-  /** Parsed arguments as array */
-  protected readonly argsArray = computed(() => {
+  /**
+   * Parse args string into array, handling quoted strings.
+   * Returns both the unquoted values and the display strings (with quotes preserved).
+   */
+  private readonly parsedArgs = computed(() => {
     const args = this.args();
-    if (!args) return [];
-    return args.split(/\s+/).filter(Boolean);
+    if (!args) return { values: [] as string[], display: [] as string[] };
+
+    const values: string[] = [];
+    const display: string[] = [];
+    let currentValue = '';
+    let currentDisplay = '';
+    let inQuote: string | null = null;
+
+    for (let i = 0; i < args.length; i++) {
+      const char = args[i];
+      if (!inQuote && (char === '"' || char === "'")) {
+        inQuote = char;
+        currentDisplay += char;
+      } else if (char === inQuote) {
+        inQuote = null;
+        currentDisplay += char;
+      } else if (char === ' ' && !inQuote) {
+        if (currentValue) {
+          values.push(currentValue);
+          display.push(currentDisplay);
+          currentValue = '';
+          currentDisplay = '';
+        }
+      } else {
+        currentValue += char;
+        currentDisplay += char;
+      }
+    }
+    if (currentValue) {
+      values.push(currentValue);
+      display.push(currentDisplay);
+    }
+    return { values, display };
+  });
+
+  /** Parsed arguments as array (raw from input - may contain labels, quotes stripped) */
+  protected readonly argsArray = computed(() => this.parsedArgs().values);
+
+  /** Parsed arguments for display (preserves quotes for visual alignment) */
+  protected readonly argsArrayDisplay = computed(() => this.parsedArgs().display);
+
+  /** Get actual values for args (substituting labels with values from selected options) */
+  protected readonly argsValues = computed(() => {
+    const args = this.argsArray();
+    const selectedOptions = this.selectedParamOptions();
+    return args.map((arg, index) => {
+      const option = selectedOptions.get(index);
+      // If we have a selected option for this param and the current arg matches its label, use the value
+      if (option && arg === option.label) {
+        return option.value;
+      }
+      return arg;
+    });
   });
 
   /** Currently selected item */
@@ -99,6 +165,57 @@ export class GigamenuComponent {
     if (!item) return false;
     if (!item.params || item.params.length === 0) return true;
     return this.argsArray().length >= item.params.length;
+  });
+
+  /** Current parameter being edited (index into params array) */
+  protected readonly currentParamIndex = computed(() => {
+    const item = this.selectedItem();
+    if (!item || !item.params || item.params.length === 0) return null;
+    const argsCount = this.argsArray().length;
+    // If we have fewer args than params, we're editing the next param
+    if (argsCount < item.params.length) return argsCount;
+    // If we have all params, we're not editing any (can execute)
+    return null;
+  });
+
+  /** Current parameter name being edited */
+  protected readonly currentParamName = computed(() => {
+    const item = this.selectedItem();
+    const paramIndex = this.currentParamIndex();
+    if (paramIndex === null || !item || !item.params) return null;
+    return item.params[paramIndex] ?? null;
+  });
+
+  /** Current partial value of the parameter being edited */
+  protected readonly currentParamValue = computed(() => {
+    const args = this.args().trim();
+    if (!args) return '';
+    const argsArray = this.argsArray();
+    const paramIndex = this.currentParamIndex();
+    if (paramIndex === null) return '';
+
+    // Check if we're currently typing (args ends with non-whitespace)
+    const endsWithSpace = args.endsWith(' ');
+
+    // If we're on the last arg and still typing
+    if (!endsWithSpace && argsArray.length === paramIndex + 1) {
+      return argsArray[paramIndex] ?? '';
+    }
+
+    // If we're starting a new arg (after a space)
+    if (endsWithSpace || argsArray.length === paramIndex) {
+      return '';
+    }
+
+    return '';
+  });
+
+  /** Check if selected item has autocomplete available for current param */
+  protected readonly hasAutocomplete = computed(() => {
+    const item = this.selectedItem();
+    const paramName = this.currentParamName();
+    if (!item || !paramName) return false;
+    return !!(item.paramProviders?.[paramName]);
   });
 
   /** Get color class for a parameter index */
@@ -156,6 +273,30 @@ export class GigamenuComponent {
 
       this.selectedIndex.set(0);
     });
+
+    // Effect to update autocomplete suggestions when parameter changes
+    effect(() => {
+      const item = this.selectedItem();
+      const paramIndex = this.currentParamIndex();
+      const paramName = this.currentParamName();
+      const paramValue = this.currentParamValue();
+
+      // Hide autocomplete if no param is being edited
+      if (paramIndex === null || !paramName || !item) {
+        this.autocompleteSuggestions.set([]);
+        return;
+      }
+
+      // Check if item has a provider for this parameter
+      const provider = item.paramProviders?.[paramName];
+      if (!provider) {
+        this.autocompleteSuggestions.set([]);
+        return;
+      }
+
+      // Fetch suggestions (but don't auto-show - Tab triggers that)
+      this.fetchAutocompleteSuggestions(provider, paramValue);
+    });
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -182,7 +323,62 @@ export class GigamenuComponent {
 
   protected onInputKeydown(event: KeyboardEvent): void {
     const items = this.filteredItems();
+    const showingAutocomplete = this.showAutocomplete();
+    const suggestions = this.autocompleteSuggestions();
+    const item = this.selectedItem();
+    const paramName = this.currentParamName();
 
+    // Handle Tab key specially - toggles and cycles through autocomplete
+    if (event.key === 'Tab') {
+      event.preventDefault();
+
+      // Check if we have autocomplete available for current param
+      if (item && paramName && item.paramProviders?.[paramName] && suggestions.length > 0) {
+        if (!showingAutocomplete) {
+          // First Tab: show autocomplete
+          this.showAutocomplete.set(true);
+          this.autocompleteSelectedIndex.set(0);
+        } else {
+          // Subsequent Tabs: cycle through options (wrap around)
+          this.autocompleteSelectedIndex.update((i) => (i + 1) % suggestions.length);
+          // Need timeout to let DOM update before scrolling
+          setTimeout(() => this.scrollAutocompleteIntoView(), 0);
+        }
+        return;
+      }
+
+      // No autocomplete available, do nothing
+      return;
+    }
+
+    // Handle autocomplete navigation when showing suggestions
+    if (showingAutocomplete && suggestions.length > 0) {
+      switch (event.key) {
+        case 'ArrowDown':
+          event.preventDefault();
+          this.autocompleteSelectedIndex.update((i) => (i + 1) % suggestions.length);
+          setTimeout(() => this.scrollAutocompleteIntoView(), 0);
+          return;
+
+        case 'ArrowUp':
+          event.preventDefault();
+          this.autocompleteSelectedIndex.update((i) => (i - 1 + suggestions.length) % suggestions.length);
+          setTimeout(() => this.scrollAutocompleteIntoView(), 0);
+          return;
+
+        case 'Enter':
+          event.preventDefault();
+          this.selectAutocompleteSuggestion();
+          return;
+
+        case 'Escape':
+          event.preventDefault();
+          this.showAutocomplete.set(false);
+          return;
+      }
+    }
+
+    // Normal menu navigation when autocomplete is not showing
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
@@ -226,6 +422,19 @@ export class GigamenuComponent {
     }
   }
 
+  private scrollAutocompleteIntoView(): void {
+    const container = this.autocompleteContainer()?.nativeElement;
+    if (!container) return;
+
+    const selectedButton = container.querySelector(
+      `[data-autocomplete-index="${this.autocompleteSelectedIndex()}"]`
+    ) as HTMLElement | null;
+
+    if (selectedButton) {
+      selectedButton.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
   protected onQueryChange(event: Event): void {
     const value = (event.target as HTMLInputElement).value;
     this.query.set(value);
@@ -242,8 +451,10 @@ export class GigamenuComponent {
     const searchTerm = this.searchTerm();
     this.frecency.recordSelection(searchTerm, item.id);
 
-    // Get args before closing (which resets query)
-    const args = this.args() || undefined;
+    // Get args values before closing (which resets query)
+    // Use argsValues which substitutes labels with actual values
+    const argsValues = this.argsValues();
+    const args = argsValues.length > 0 ? argsValues.join(' ') : undefined;
 
     this.close();
     item.action(args);
@@ -299,10 +510,118 @@ export class GigamenuComponent {
     };
   }
 
+  /**
+   * Fetch autocomplete suggestions from a provider
+   */
+  private async fetchAutocompleteSuggestions(provider: ParamProvider, query: string): Promise<void> {
+    try {
+      let options: AutocompleteOption[];
+      let isAsync = false;
+
+      // Handle static array provider
+      if (Array.isArray(provider)) {
+        const cacheKey = `${JSON.stringify(provider)}-${query}`;
+        // Check cache first (only for static providers)
+        if (this.autocompleteCache.has(cacheKey)) {
+          const cached = this.autocompleteCache.get(cacheKey)!;
+          this.updateFilteredSuggestions(cached, query, true);
+          return;
+        }
+        options = provider;
+        this.autocompleteCache.set(cacheKey, options);
+      } else {
+        // Handle async function provider (server-side filtering)
+        isAsync = true;
+        const result = await Promise.resolve(provider(query));
+        options = result;
+      }
+
+      // For async providers, skip client-side filtering (server already filtered)
+      // For static providers, do client-side filtering
+      this.updateFilteredSuggestions(options, query, !isAsync);
+    } catch (error) {
+      console.error('Error fetching autocomplete suggestions:', error);
+      this.showAutocomplete.set(false);
+      this.autocompleteSuggestions.set([]);
+    }
+  }
+
+  /**
+   * Filter and update suggestions based on current query
+   * @param options The autocomplete options
+   * @param query The current filter query
+   * @param doClientFilter Whether to apply client-side filtering (false for async providers)
+   */
+  private updateFilteredSuggestions(options: AutocompleteOption[], query: string, doClientFilter: boolean): void {
+    let filtered = options;
+
+    // Only filter client-side for static providers
+    if (doClientFilter) {
+      const lowerQuery = query.toLowerCase().trim();
+      filtered = lowerQuery
+        ? options.filter((opt) => opt.label.toLowerCase().includes(lowerQuery))
+        : options;
+    }
+
+    this.autocompleteSuggestions.set(filtered);
+    // Don't auto-show - Tab triggers the dropdown
+    // But hide if we have no suggestions left
+    if (filtered.length === 0) {
+      this.showAutocomplete.set(false);
+    }
+    this.autocompleteSelectedIndex.set(0);
+  }
+
+  /**
+   * Select an autocomplete suggestion and update the query
+   */
+  protected selectAutocompleteSuggestion(option?: AutocompleteOption): void {
+    if (!option) {
+      const suggestions = this.autocompleteSuggestions();
+      const selectedIdx = this.autocompleteSelectedIndex();
+      option = suggestions[selectedIdx];
+    }
+
+    if (!option) return;
+
+    const searchTerm = this.searchTerm();
+    const separator = this.service.config().argSeparator ?? ' ';
+    const argsArray = this.argsArray();
+    const paramIndex = this.currentParamIndex();
+
+    if (paramIndex === null) return;
+
+    // Store the selected option for this param (maps label to value)
+    this.selectedParamOptions.update(map => {
+      const newMap = new Map(map);
+      newMap.set(paramIndex, option);
+      return newMap;
+    });
+
+    // Quote labels that contain spaces
+    const escapedLabel = option.label.includes(' ') ? `'${option.label}'` : option.label;
+
+    // Replace current param with the selected option's label (display text)
+    const newArgs = [...argsArray];
+    newArgs[paramIndex] = escapedLabel;
+
+    // Build new query with the selected label
+    const newQuery = searchTerm + separator + newArgs.join(' ') + ' ';
+    this.query.set(newQuery);
+
+    // Hide autocomplete
+    this.showAutocomplete.set(false);
+    this.autocompleteSelectedIndex.set(0);
+  }
+
   private close(): void {
     this.service.close();
     this.query.set('');
     this.selectedIndex.set(0);
+    this.showAutocomplete.set(false);
+    this.autocompleteSelectedIndex.set(0);
+    this.autocompleteCache.clear();
+    this.selectedParamOptions.set(new Map());
   }
 
   private sortByFrecency(items: GigamenuItem[], scores: Map<string, number>): GigamenuItem[] {

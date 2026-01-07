@@ -46,7 +46,7 @@
           class="pointer-events-none absolute inset-0 flex items-center px-3 py-4 text-base"
           aria-hidden="true"
         >
-          <span class="text-neutral-900 dark:text-neutral-100">{{ searchTerm() }}</span>@for (arg of argsArray(); track $index) {<span class="whitespace-pre text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span><span [class]="getParamColor($index)">{{ arg }}</span>}@if (hasSeparator() && args().endsWith(' ')) {<span class="whitespace-pre text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span>}
+          <span class="text-neutral-900 dark:text-neutral-100">{{ searchTerm() }}</span>@for (arg of argsArrayDisplay(); track $index) {<span class="whitespace-pre text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span><span [class]="getParamColor($index)">{{ arg }}</span>}@if (hasSeparator() && args().endsWith(' ')) {<span class="whitespace-pre text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span>}
         </div>
         <!-- Transparent input on top -->
         <input
@@ -64,6 +64,36 @@
       >
         ESC
       </kbd>
+    </div>
+    }
+
+    <!-- Autocomplete suggestions -->
+    @if (showAutocomplete() && autocompleteSuggestions().length > 0) {
+    <div class="border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/50">
+      <div #autocompleteContainer class="max-h-48 overflow-y-auto p-2">
+        <div class="mb-1 px-3 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+          Suggestions for <span [class]="getParamColor(currentParamIndex() ?? 0)">&lt;{{ currentParamName() }}&gt;</span>
+        </div>
+        @for (suggestion of autocompleteSuggestions(); track $index) {
+        <button
+          type="button"
+          [attr.data-autocomplete-index]="$index"
+          (click)="selectAutocompleteSuggestion(suggestion)"
+          (mouseenter)="autocompleteSelectedIndex.set($index)"
+          [class]="
+            'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ' +
+            (autocompleteSelectedIndex() === $index
+              ? 'bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-100'
+              : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700/50')
+          "
+        >
+          <span class="flex-1 font-medium">{{ suggestion.label }}</span>
+          @if (suggestion.value !== suggestion.label) {
+          <span class="text-xs text-neutral-500 dark:text-neutral-400">{{ suggestion.value }}</span>
+          }
+        </button>
+        }
+      </div>
     </div>
     }
 
@@ -116,7 +146,7 @@
             }
             <div class="flex-1 min-w-0">
               <div class="truncate font-medium text-neutral-900 dark:text-neutral-100">
-                {{ item.label }}@if (item.params) { @for (param of item.params; track $index) {<span class="whitespace-pre"> </span><span [class]="getParamColor($index)">&lt;{{ param }}&gt;</span>}}
+                {{ item.label }}@if (item.params) { @for (param of item.params; track $index) {<span class="whitespace-pre"> </span><span [class]="getParamColor($index)">&lt;{{ param }}&gt;</span>}@if (item.paramProviders) {<span class="ml-2 inline-flex items-center rounded border border-neutral-300 bg-neutral-100 px-1 py-0.5 text-[10px] font-normal text-neutral-500 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-400">Tab</span>}}
               </div>
               @if (item.description) {
               <div class="truncate text-sm text-neutral-500 dark:text-neutral-400">

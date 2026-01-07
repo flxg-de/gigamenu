@@ -86,17 +86,23 @@ export class GigamenuService {
     // Extract parameter names from path (e.g., /users/:id -> ['id'])
     const paramNames = this.extractParamNames(page.path);
 
+    // Use manually specified params if provided, otherwise use extracted ones
+    const finalParams = page.params ?? (paramNames.length > 0 ? paramNames : undefined);
+
     this.registerItem({
       ...page,
       category: 'page',
-      params: paramNames.length > 0 ? paramNames : undefined,
+      params: finalParams,
+      // Preserve paramProviders if specified
+      paramProviders: page.paramProviders,
       action: (args?: string) => {
         let path = page.path;
-        if (paramNames.length > 0 && args) {
+        const paramsToReplace = finalParams ?? [];
+        if (paramsToReplace.length > 0 && args) {
           // Split args by whitespace to get parameter values
           const argValues = args.trim().split(/\s+/);
           // Replace each parameter with corresponding arg value
-          paramNames.forEach((param, index) => {
+          paramsToReplace.forEach((param, index) => {
             if (argValues[index]) {
               path = path.replace(`:${param}`, argValues[index]);
             }
