@@ -27,6 +27,8 @@ import {
   GigamenuFooterContext,
   GigamenuPanelContext,
 } from './gigamenu-templates.directive';
+import { QueryParser } from './query-parser';
+import { InputState } from './input-state';
 
 @Component({
   selector: 'gm-gigamenu',
@@ -66,70 +68,29 @@ export class GigamenuComponent {
 
   private readonly autocompleteContainer = viewChild<ElementRef<HTMLDivElement>>('autocompleteContainer');
 
-  /** Parsed search term (before first separator) */
-  protected readonly searchTerm = computed(() => {
-    const q = this.query();
+  /** Query parser instance (recreated when separator changes) */
+  private readonly queryParser = computed(() => {
     const separator = this.service.config().argSeparator ?? ' ';
-    const sepIndex = q.indexOf(separator);
-    if (sepIndex === -1) return q;
-    return q.substring(0, sepIndex);
+    return new QueryParser(separator);
   });
+
+  /** Parsed query (search term, args, hasSeparator) */
+  private readonly parsedQuery = computed(() => {
+    return this.queryParser().parseQuery(this.query());
+  });
+
+  /** Parsed search term (before first separator, handles quoted strings) */
+  protected readonly searchTerm = computed(() => this.parsedQuery().searchTerm);
 
   /** Parsed arguments (after first separator) */
-  protected readonly args = computed(() => {
-    const q = this.query();
-    const separator = this.service.config().argSeparator ?? ' ';
-    const sepIndex = q.indexOf(separator);
-    if (sepIndex === -1) return '';
-    return q.substring(sepIndex + separator.length);
-  });
+  protected readonly args = computed(() => this.parsedQuery().args);
 
   /** Whether the query contains a separator (for display purposes) */
-  protected readonly hasSeparator = computed(() => {
-    const q = this.query();
-    const separator = this.service.config().argSeparator ?? ' ';
-    return q.includes(separator);
-  });
+  protected readonly hasSeparator = computed(() => this.parsedQuery().hasSeparator);
 
-  /**
-   * Parse args string into array, handling quoted strings.
-   * Returns both the unquoted values and the display strings (with quotes preserved).
-   */
+  /** Parsed args into array (values and display strings) */
   private readonly parsedArgs = computed(() => {
-    const args = this.args();
-    if (!args) return { values: [] as string[], display: [] as string[] };
-
-    const values: string[] = [];
-    const display: string[] = [];
-    let currentValue = '';
-    let currentDisplay = '';
-    let inQuote: string | null = null;
-
-    for (let i = 0; i < args.length; i++) {
-      const char = args[i];
-      if (!inQuote && (char === '"' || char === "'")) {
-        inQuote = char;
-        currentDisplay += char;
-      } else if (char === inQuote) {
-        inQuote = null;
-        currentDisplay += char;
-      } else if (char === ' ' && !inQuote) {
-        if (currentValue) {
-          values.push(currentValue);
-          display.push(currentDisplay);
-          currentValue = '';
-          currentDisplay = '';
-        }
-      } else {
-        currentValue += char;
-        currentDisplay += char;
-      }
-    }
-    if (currentValue) {
-      values.push(currentValue);
-      display.push(currentDisplay);
-    }
-    return { values, display };
+    return this.queryParser().parseArgs(this.args());
   });
 
   /** Parsed arguments as array (raw from input - may contain labels, quotes stripped) */
@@ -171,10 +132,20 @@ export class GigamenuComponent {
   protected readonly currentParamIndex = computed(() => {
     const item = this.selectedItem();
     if (!item || !item.params || item.params.length === 0) return null;
+
+    const args = this.args();
     const argsCount = this.argsArray().length;
-    // If we have fewer args than params, we're editing the next param
+    const endsWithSpace = args.endsWith(' ');
+
+    // If user is still typing a param (no trailing space) and has typed at least one arg
+    if (!endsWithSpace && argsCount > 0 && argsCount <= item.params.length) {
+      return argsCount - 1; // Currently editing the last typed arg
+    }
+
+    // If we have fewer args than params, we're about to type the next param
     if (argsCount < item.params.length) return argsCount;
-    // If we have all params, we're not editing any (can execute)
+
+    // All params complete (with trailing space confirming completion)
     return null;
   });
 
@@ -216,6 +187,53 @@ export class GigamenuComponent {
     const paramName = this.currentParamName();
     if (!item || !paramName) return false;
     return !!(item.paramProviders?.[paramName]);
+  });
+
+  /** Typeahead ghost text - shows remaining portion of best matching suggestion (only in parameter mode) */
+  protected readonly typeaheadSuggestion = computed(() => {
+    const item = this.selectedItem();
+    if (!item) return null;
+
+    // Only show typeahead when in parameter mode (search term matches item label)
+    if (!this.isSearchTermMatchingItem(item)) return null;
+
+    const suggestions = this.autocompleteSuggestions();
+    const selectedIdx = this.autocompleteSelectedIndex();
+    const paramValue = this.currentParamValue();
+
+    if (suggestions.length === 0) return null;
+
+    const suggestion = suggestions[selectedIdx] ?? suggestions[0];
+    if (!suggestion) return null;
+
+    // Return portion of label that extends beyond typed text (case-insensitive prefix match)
+    const suggestionLabel = suggestion.label;
+    if (suggestionLabel.toLowerCase().startsWith(paramValue.toLowerCase())) {
+      return suggestionLabel.slice(paramValue.length);
+    }
+    return null;
+  });
+
+  /** Current input state based on menu/query/autocomplete status */
+  protected readonly currentState = computed((): InputState => {
+    // Check if menu is open
+    if (!this.service.isOpen()) {
+      return InputState.Closed;
+    }
+
+    // Check if autocomplete overlay is showing
+    if (this.showAutocomplete() && this.autocompleteSuggestions().length > 0) {
+      return InputState.ParameterSelection;
+    }
+
+    // Check if we're in parameter input mode (search term matches selected item)
+    const item = this.selectedItem();
+    if (item && this.isSearchTermMatchingItem(item)) {
+      return InputState.ParameterInput;
+    }
+
+    // Default: searching
+    return InputState.Searching;
   });
 
   /** Get color class for a parameter index */
@@ -280,6 +298,7 @@ export class GigamenuComponent {
       const paramIndex = this.currentParamIndex();
       const paramName = this.currentParamName();
       const paramValue = this.currentParamValue();
+      const isOverlayShowing = this.showAutocomplete();
 
       // Hide autocomplete if no param is being edited
       if (paramIndex === null || !paramName || !item) {
@@ -291,6 +310,12 @@ export class GigamenuComponent {
       const provider = item.paramProviders?.[paramName];
       if (!provider) {
         this.autocompleteSuggestions.set([]);
+        return;
+      }
+
+      // When overlay is showing (Tab-cycling mode), don't re-filter suggestions
+      // This allows zsh-style cycling through all options
+      if (isOverlayShowing) {
         return;
       }
 
@@ -321,65 +346,117 @@ export class GigamenuComponent {
     }
   }
 
+  /**
+   * Main keyboard event handler - dispatches to state-specific handlers.
+   */
   protected onInputKeydown(event: KeyboardEvent): void {
-    const items = this.filteredItems();
-    const showingAutocomplete = this.showAutocomplete();
-    const suggestions = this.autocompleteSuggestions();
-    const item = this.selectedItem();
-    const paramName = this.currentParamName();
-
-    // Handle Tab key specially - toggles and cycles through autocomplete
-    if (event.key === 'Tab') {
-      event.preventDefault();
-
-      // Check if we have autocomplete available for current param
-      if (item && paramName && item.paramProviders?.[paramName] && suggestions.length > 0) {
-        if (!showingAutocomplete) {
-          // First Tab: show autocomplete
-          this.showAutocomplete.set(true);
-          this.autocompleteSelectedIndex.set(0);
-        } else {
-          // Subsequent Tabs: cycle through options (wrap around)
-          this.autocompleteSelectedIndex.update((i) => (i + 1) % suggestions.length);
-          // Need timeout to let DOM update before scrolling
-          setTimeout(() => this.scrollAutocompleteIntoView(), 0);
-        }
+    // Handle zsh-like shortcuts first (apply to all states except ParameterSelection)
+    const state = this.currentState();
+    if (state !== InputState.ParameterSelection) {
+      if (this.handleZshShortcuts(event)) {
         return;
       }
-
-      // No autocomplete available, do nothing
-      return;
     }
 
-    // Handle autocomplete navigation when showing suggestions
-    if (showingAutocomplete && suggestions.length > 0) {
-      switch (event.key) {
-        case 'ArrowDown':
-          event.preventDefault();
-          this.autocompleteSelectedIndex.update((i) => (i + 1) % suggestions.length);
-          setTimeout(() => this.scrollAutocompleteIntoView(), 0);
-          return;
+    switch (state) {
+      case InputState.Searching:
+        this.handleSearchingKeydown(event);
+        break;
+      case InputState.ParameterInput:
+        this.handleParameterInputKeydown(event);
+        break;
+      case InputState.ParameterSelection:
+        this.handleParameterSelectionKeydown(event);
+        break;
+      // Closed state is handled by onGlobalKeydown
+    }
+  }
 
-        case 'ArrowUp':
-          event.preventDefault();
-          this.autocompleteSelectedIndex.update((i) => (i - 1 + suggestions.length) % suggestions.length);
-          setTimeout(() => this.scrollAutocompleteIntoView(), 0);
-          return;
+  /**
+   * Handle zsh/readline-like keyboard shortcuts.
+   * Returns true if the event was handled.
+   */
+  private handleZshShortcuts(event: KeyboardEvent): boolean {
+    const query = this.query();
 
-        case 'Enter':
-          event.preventDefault();
-          this.selectAutocompleteSuggestion();
-          return;
+    // Ctrl+W or Alt+Backspace or Ctrl+Backspace: Delete last word
+    if ((event.ctrlKey && event.key === 'w') ||
+        (event.altKey && event.key === 'Backspace') ||
+        (event.ctrlKey && event.key === 'Backspace')) {
+      event.preventDefault();
+      this.deleteLastWord();
+      return true;
+    }
 
-        case 'Escape':
-          event.preventDefault();
-          this.showAutocomplete.set(false);
-          return;
+    // Ctrl+U: Clear line (delete to beginning)
+    if (event.ctrlKey && event.key === 'u') {
+      event.preventDefault();
+      this.query.set('');
+      return true;
+    }
+
+    // Ctrl+H: Backspace (delete char before cursor) - browser handles this
+
+    // Ctrl+A: Move to beginning - browser handles this
+    // Ctrl+E: Move to end - browser handles this
+
+    return false;
+  }
+
+  /**
+   * Delete the last word from the query (zsh-style Ctrl+W).
+   * Handles quoted strings as single words.
+   */
+  private deleteLastWord(): void {
+    const query = this.query();
+    if (!query) return;
+
+    // Trim trailing whitespace (ES5 compatible)
+    let newQuery = query.replace(/\s+$/, '');
+
+    // If ends with a quote, delete until matching opening quote
+    if (newQuery.endsWith("'") || newQuery.endsWith('"')) {
+      const quoteChar = newQuery[newQuery.length - 1];
+      const openingQuoteIndex = newQuery.lastIndexOf(quoteChar, newQuery.length - 2);
+      if (openingQuoteIndex !== -1) {
+        newQuery = newQuery.substring(0, openingQuoteIndex).replace(/\s+$/, '');
+      } else {
+        // No matching quote, just remove the quote
+        newQuery = newQuery.slice(0, -1).replace(/\s+$/, '');
+      }
+    } else {
+      // Delete until last whitespace
+      const lastSpaceIndex = newQuery.lastIndexOf(' ');
+      if (lastSpaceIndex !== -1) {
+        newQuery = newQuery.substring(0, lastSpaceIndex);
+      } else {
+        // No spaces, clear everything
+        newQuery = '';
       }
     }
 
-    // Normal menu navigation when autocomplete is not showing
+    this.query.set(newQuery);
+  }
+
+  /**
+   * Keyboard handler for Searching state.
+   * User is typing a search term, navigating menu items.
+   */
+  private handleSearchingKeydown(event: KeyboardEvent): void {
+    const items = this.filteredItems();
+    const item = this.selectedItem();
+    const separator = this.service.config().argSeparator ?? ' ';
+
     switch (event.key) {
+      case 'Tab':
+      case 'ArrowRight':
+        // Complete item label
+        if (item) {
+          event.preventDefault();
+          this.completeItemLabel(item, separator);
+        }
+        break;
+
       case 'ArrowDown':
         event.preventDefault();
         this.selectedIndex.update((i) => Math.min(i + 1, items.length - 1));
@@ -394,17 +471,105 @@ export class GigamenuComponent {
 
       case 'Enter':
         event.preventDefault();
-        if (this.canExecute()) {
-          const selected = items[this.selectedIndex()];
-          if (selected) {
-            this.executeItem(selected);
-          }
+        if (this.canExecute() && item) {
+          this.executeItem(item);
         }
         break;
 
       case 'Escape':
         event.preventDefault();
         this.close();
+        break;
+    }
+  }
+
+  /**
+   * Keyboard handler for ParameterInput state.
+   * User has selected an item and is typing parameter values.
+   */
+  private handleParameterInputKeydown(event: KeyboardEvent): void {
+    const items = this.filteredItems();
+    const item = this.selectedItem();
+    const suggestions = this.autocompleteSuggestions();
+    const paramName = this.currentParamName();
+    const config = this.service.config();
+    const tabBehavior = config.autocompleteTabBehavior ?? 'cycle';
+
+    switch (event.key) {
+      case 'Tab':
+        event.preventDefault();
+        // Check if we have autocomplete available
+        if (item && paramName && item.paramProviders?.[paramName] && suggestions.length > 0) {
+          // zsh-style: Tab accepts current suggestion AND cycles to next
+          // Accept the first suggestion (ghost text)
+          this.selectAutocompleteSuggestionAndCycle();
+          // Show overlay for visibility
+          this.showAutocomplete.set(true);
+        }
+        break;
+
+      case 'ArrowDown':
+        event.preventDefault();
+        this.selectedIndex.update((i) => Math.min(i + 1, items.length - 1));
+        this.scrollSelectedIntoView();
+        break;
+
+      case 'ArrowUp':
+        event.preventDefault();
+        this.selectedIndex.update((i) => Math.max(i - 1, 0));
+        this.scrollSelectedIntoView();
+        break;
+
+      case 'Enter':
+        event.preventDefault();
+        if (this.canExecute() && item) {
+          this.executeItem(item);
+        }
+        break;
+
+      case 'Escape':
+        event.preventDefault();
+        this.close();
+        break;
+    }
+  }
+
+  /**
+   * Keyboard handler for ParameterSelection state.
+   * Autocomplete overlay is open, user is navigating suggestions.
+   */
+  private handleParameterSelectionKeydown(event: KeyboardEvent): void {
+    const suggestions = this.autocompleteSuggestions();
+
+    switch (event.key) {
+      case 'Tab':
+        // zsh-style: Tab accepts current AND cycles to next
+        event.preventDefault();
+        this.selectAutocompleteSuggestionAndCycle();
+        break;
+
+      case 'Enter':
+        // Enter accepts and closes overlay
+        event.preventDefault();
+        this.selectAutocompleteSuggestion();
+        break;
+
+      case 'ArrowDown':
+        event.preventDefault();
+        this.autocompleteSelectedIndex.update((i) => (i + 1) % suggestions.length);
+        setTimeout(() => this.scrollAutocompleteIntoView(), 0);
+        break;
+
+      case 'ArrowUp':
+        event.preventDefault();
+        this.autocompleteSelectedIndex.update((i) => (i - 1 + suggestions.length) % suggestions.length);
+        setTimeout(() => this.scrollAutocompleteIntoView(), 0);
+        break;
+
+      case 'Escape':
+        // Close overlay, return to ParameterInput state
+        event.preventDefault();
+        this.showAutocomplete.set(false);
         break;
     }
   }
@@ -438,6 +603,12 @@ export class GigamenuComponent {
   protected onQueryChange(event: Event): void {
     const value = (event.target as HTMLInputElement).value;
     this.query.set(value);
+
+    // Hide autocomplete overlay on typing if configured
+    const dismissBehavior = this.service.config().autocompleteDismiss ?? 'on-type';
+    if (dismissBehavior === 'on-type' && this.showAutocomplete()) {
+      this.showAutocomplete.set(false);
+    }
   }
 
   protected onBackdropClick(event: MouseEvent): void {
@@ -598,8 +769,8 @@ export class GigamenuComponent {
       return newMap;
     });
 
-    // Quote labels that contain spaces
-    const escapedLabel = option.label.includes(' ') ? `'${option.label}'` : option.label;
+    // Quote labels that contain spaces using QueryParser
+    const escapedLabel = this.queryParser().escapeIfNeeded(option.label);
 
     // Replace current param with the selected option's label (display text)
     const newArgs = [...argsArray];
@@ -612,6 +783,52 @@ export class GigamenuComponent {
     // Hide autocomplete
     this.showAutocomplete.set(false);
     this.autocompleteSelectedIndex.set(0);
+  }
+
+  /**
+   * zsh-style: Select current suggestion AND cycle to next.
+   * This allows Tab to both accept and prepare for next Tab press.
+   */
+  private selectAutocompleteSuggestionAndCycle(): void {
+    const suggestions = this.autocompleteSuggestions();
+    const currentIdx = this.autocompleteSelectedIndex();
+
+    if (suggestions.length === 0) return;
+
+    const option = suggestions[currentIdx];
+    if (!option) return;
+
+    const searchTerm = this.searchTerm();
+    const separator = this.service.config().argSeparator ?? ' ';
+    const argsArray = this.argsArray();
+    const paramIndex = this.currentParamIndex();
+
+    if (paramIndex === null) return;
+
+    // Store the selected option for this param (maps label to value)
+    this.selectedParamOptions.update(map => {
+      const newMap = new Map(map);
+      newMap.set(paramIndex, option);
+      return newMap;
+    });
+
+    // Quote labels that contain spaces using QueryParser
+    const escapedLabel = this.queryParser().escapeIfNeeded(option.label);
+
+    // Replace current param with the selected option's label (display text)
+    // Don't add trailing space - keep cursor position for cycling
+    const newArgs = [...argsArray];
+    newArgs[paramIndex] = escapedLabel;
+
+    // Build new query WITHOUT trailing space (so user can keep Tab-cycling)
+    const newQuery = searchTerm + separator + newArgs.join(' ');
+    this.query.set(newQuery);
+
+    // Cycle to next suggestion for subsequent Tab presses
+    const nextIdx = (currentIdx + 1) % suggestions.length;
+    this.autocompleteSelectedIndex.set(nextIdx);
+
+    // Keep overlay open (or it will show next time)
   }
 
   private close(): void {
@@ -644,7 +861,9 @@ export class GigamenuComponent {
       .join(' ')
       .toLowerCase();
 
-    const words = query.split(/\s+/);
+    // Strip quotes from query using QueryParser
+    const searchQuery = this.queryParser().stripQuotes(query);
+    const words = searchQuery.split(/\s+/);
     return words.every((word) => searchableText.includes(word));
   }
 
@@ -658,5 +877,24 @@ export class GigamenuComponent {
       tagName === 'textarea' ||
       (activeElement as HTMLElement).isContentEditable
     );
+  }
+
+  /**
+   * Check if the current search term matches the selected item's label.
+   * Uses QueryParser for quote handling.
+   */
+  private isSearchTermMatchingItem(item: GigamenuItem): boolean {
+    return this.queryParser().matchesLabel(this.searchTerm(), item.label);
+  }
+
+  /**
+   * Complete the selected item's label in the search input.
+   * Uses QueryParser for escaping labels with spaces.
+   */
+  private completeItemLabel(item: GigamenuItem, separator: string): void {
+    const escapedLabel = this.queryParser().escapeIfNeeded(item.label);
+    const hasParams = item.params && item.params.length > 0;
+    const newQuery = hasParams ? escapedLabel + separator : escapedLabel;
+    this.query.set(newQuery);
   }
 }

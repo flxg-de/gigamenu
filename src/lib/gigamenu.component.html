@@ -14,7 +14,7 @@
   } @else {
   <!-- Default panel -->
   <div
-    class="relative z-10 w-full max-w-xl overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
+    class="relative z-10 w-full max-w-xl min-h-[200px] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
     role="dialog"
     aria-modal="true"
     aria-label="Command menu"
@@ -43,10 +43,10 @@
       <div class="relative flex-1">
         <!-- Styled overlay for syntax highlighting -->
         <div
-          class="pointer-events-none absolute inset-0 flex items-center px-3 py-4 text-base"
+          class="pointer-events-none absolute inset-0 flex items-center whitespace-pre px-3 py-4 text-base"
           aria-hidden="true"
         >
-          <span class="text-neutral-900 dark:text-neutral-100">{{ searchTerm() }}</span>@for (arg of argsArrayDisplay(); track $index) {<span class="whitespace-pre text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span><span [class]="getParamColor($index)">{{ arg }}</span>}@if (hasSeparator() && args().endsWith(' ')) {<span class="whitespace-pre text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span>}
+          <span class="text-neutral-900 dark:text-neutral-100">{{ searchTerm() }}</span>@for (arg of argsArrayDisplay(); track $index) {<span class="text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span><span [class]="getParamColor($index)">{{ arg }}</span>}@if (hasSeparator() && (argsArrayDisplay().length === 0 || args().endsWith(' '))) {<span class="text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span>}@if (currentParamValue(); as partial) {<span [class]="getParamColor(currentParamIndex() ?? 0)">{{ partial }}</span>}@if (typeaheadSuggestion(); as ghost) {<span class="text-neutral-400 dark:text-neutral-500">{{ ghost }}</span>}
         </div>
         <!-- Transparent input on top -->
         <input
@@ -67,13 +67,10 @@
     </div>
     }
 
-    <!-- Autocomplete suggestions -->
+    <!-- Floating autocomplete overlay -->
     @if (showAutocomplete() && autocompleteSuggestions().length > 0) {
-    <div class="border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/50">
-      <div #autocompleteContainer class="max-h-48 overflow-y-auto p-2">
-        <div class="mb-1 px-3 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-          Suggestions for <span [class]="getParamColor(currentParamIndex() ?? 0)">&lt;{{ currentParamName() }}&gt;</span>
-        </div>
+    <div class="absolute left-4 right-4 top-[60px] z-20 rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
+      <div #autocompleteContainer class="max-h-48 overflow-y-auto p-1">
         @for (suggestion of autocompleteSuggestions(); track $index) {
         <button
           type="button"
@@ -81,7 +78,7 @@
           (click)="selectAutocompleteSuggestion(suggestion)"
           (mouseenter)="autocompleteSelectedIndex.set($index)"
           [class]="
-            'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ' +
+            'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ' +
             (autocompleteSelectedIndex() === $index
               ? 'bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-100'
               : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700/50')

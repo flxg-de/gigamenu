@@ -65,6 +65,10 @@ export interface GigamenuConfig {
   argSeparator?: string;
   /** CSS class name for dark mode (default: 'dark') */
   darkModeClass?: string;
+  /** Tab behavior for autocomplete: 'cycle' always cycles, 'accept-first' accepts on first tab (default: 'cycle') */
+  autocompleteTabBehavior?: 'cycle' | 'accept-first';
+  /** When to dismiss autocomplete overlay: 'on-type' hides on any keystroke, 'manual' only on Escape/selection (default: 'on-type') */
+  autocompleteDismiss?: 'on-type' | 'manual';
 }
 
 export const DEFAULT_CONFIG: GigamenuConfig = {
@@ -73,6 +77,8 @@ export const DEFAULT_CONFIG: GigamenuConfig = {
   autoDiscoverRoutes: true,
   argSeparator: ' ',
   darkModeClass: 'dark',
+  autocompleteTabBehavior: 'cycle',
+  autocompleteDismiss: 'on-type',
 };
 
 /**

@@ -7,10 +7,13 @@ A keyboard-driven command palette menu for Angular applications. Inspired by VS 
 - **Keyboard shortcuts**: `Ctrl/Cmd+K` and `/` (when no input is focused)
 - **Auto-discovery**: Routes from Angular Router with filtering and mapping
 - **Command registration**: With parameters, keywords, and icon support
-- **Keyboard navigation**: Arrow keys, Enter, Escape
+- **Keyboard navigation**: Arrow keys, Enter, Escape, Tab completion
+- **Zsh-like editing**: `Ctrl+W` delete word, `Ctrl+U` clear line, and more
 - **Smart search**: Multi-word fuzzy filtering with keyword matching
 - **Frecency ranking**: Learns from your usage patterns
 - **Parameter handling**: Pass arguments to commands with validation
+- **Typeahead autocomplete**: Ghost text suggestions with floating overlay
+- **Quoted string support**: Labels with spaces handled automatically
 - **Custom templates**: 5 template directives for full UI customization
 - **Dark mode**: Configurable class name support
 - **Icon libraries**: Support for emoji and CSS icon classes (FontAwesome, PrimeIcons, etc.)
@@ -179,8 +182,16 @@ interface GigamenuConfig {
   autoDiscoverRoutes?: boolean; // Auto-discover on init
   argSeparator?: string;     // Separator between query and args (default: ' ')
   darkModeClass?: string;    // CSS class for dark mode (default: 'dark')
+  autocompleteTabBehavior?: 'cycle' | 'accept-first';  // Tab behavior (default: 'cycle')
+  autocompleteDismiss?: 'on-type' | 'manual';          // Overlay dismiss (default: 'on-type')
 }
 ```
+
+**Autocomplete Configuration:**
+- `autocompleteTabBehavior: 'cycle'` - Tab shows overlay, use arrows to navigate
+- `autocompleteTabBehavior: 'accept-first'` - First Tab accepts ghost text immediately
+- `autocompleteDismiss: 'on-type'` - Overlay hides when you continue typing
+- `autocompleteDismiss: 'manual'` - Overlay stays until Escape or selection
 
 ### Types
 
@@ -255,6 +266,33 @@ All template directives provide context objects for customization:
 
 ## Advanced Features
 
+### Autocomplete with Typeahead
+
+When commands have `paramProviders`, gigamenu provides intelligent autocomplete:
+
+**Typeahead Ghost Text:**
+- As you type a parameter, a muted ghost text shows the best matching suggestion
+- The ghost text completes your current input based on prefix matching
+
+**Floating Overlay:**
+- Press `Tab` to show all available suggestions in a floating overlay
+- Navigate with `↑`/`↓`, select with `Tab` or `Enter`
+- Press `Escape` to dismiss
+
+**Example Flow:**
+```
+1. Type "user" → "User Profile" is highlighted
+2. Press Tab → Input becomes "'User Profile' "
+3. Start typing "Fe" → Ghost text shows "lix" (matching "Felix")
+4. Press Tab → Overlay shows all matching users
+5. Select with Enter → Parameter value is set
+```
+
+**Quoted Labels:**
+Labels with spaces are automatically quoted to preserve them as single values:
+- `User Profile` becomes `'User Profile'` in the input
+- Ctrl+W deletes the entire quoted string as one word
+
 ### Frecency-Based Ranking
 
 Gigamenu uses intelligent ranking based on **frequency** and **recency** of selections:
@@ -282,6 +320,7 @@ Parameters in commands are automatically color-coded:
 
 ## Keyboard Shortcuts
 
+### General Navigation
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl/Cmd+K` | Open menu |
@@ -289,6 +328,25 @@ Parameters in commands are automatically color-coded:
 | `↑` / `↓` | Navigate items |
 | `Enter` | Execute selected item |
 | `Escape` | Close menu |
+| `Tab` / `→` | Complete item label (when searching) |
+
+### Autocomplete (Parameter Selection)
+| Shortcut | Action |
+|----------|--------|
+| `Tab` | Show autocomplete overlay / Select suggestion |
+| `↑` / `↓` | Navigate suggestions |
+| `Enter` | Select suggestion |
+| `Escape` | Close overlay |
+
+### Zsh-like Editing
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+W` | Delete last word |
+| `Ctrl+U` | Clear entire line |
+| `Ctrl+Backspace` | Delete last word |
+| `Alt+Backspace` | Delete last word |
+| `Ctrl+A` | Move to beginning |
+| `Ctrl+E` | Move to end |
 
 ## Styling
 
