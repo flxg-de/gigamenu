@@ -1,18 +1,16 @@
 /**
  * Represents the different states of the gigamenu input.
+ * New paradigm: input handles ONE thing at a time.
  */
 export enum InputState {
   /** Menu is closed */
   Closed = 'closed',
 
-  /** User is typing a search term (no separator, or inside quoted string) */
-  Searching = 'searching',
+  /** User is searching/selecting an action (page or command) */
+  ActionSelection = 'actionSelection',
 
-  /** User is typing a parameter value (search term matches item) */
+  /** User is inputting a parameter value */
   ParameterInput = 'parameterInput',
-
-  /** Autocomplete overlay is open, user is navigating suggestions */
-  ParameterSelection = 'parameterSelection',
 }
 
 /**
@@ -80,3 +78,27 @@ export type KeyboardAction =
   | { type: 'hideAutocomplete' }
   | { type: 'close' }
   | { type: 'setQuery'; query: string };
+
+/**
+ * Context for computing the current input state.
+ */
+export interface InputStateContext {
+  isOpen: boolean;
+  /** Whether an action has been locked/selected for parameter input */
+  hasLockedAction: boolean;
+}
+
+/**
+ * Compute the current input state based on menu status.
+ */
+export function computeInputState(ctx: InputStateContext): InputState {
+  if (!ctx.isOpen) {
+    return InputState.Closed;
+  }
+
+  if (ctx.hasLockedAction) {
+    return InputState.ParameterInput;
+  }
+
+  return InputState.ActionSelection;
+}

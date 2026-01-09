@@ -7,172 +7,182 @@
 
   <!-- Custom panel template -->
   @if (panelTemplate(); as pt) {
-    <ng-container
-      [ngTemplateOutlet]="pt.template"
-      [ngTemplateOutletContext]="getPanelContext()"
-    ></ng-container>
+  <ng-container
+    [ngTemplateOutlet]="pt.template"
+    [ngTemplateOutletContext]="getPanelContext()"
+  ></ng-container>
   } @else {
   <!-- Default panel -->
   <div
-    class="relative z-10 w-full max-w-xl min-h-[200px] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
+    class="relative z-10 w-full max-w-xl min-h-50 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
     role="dialog"
     aria-modal="true"
     aria-label="Command menu"
   >
     <!-- Header -->
     @if (headerTemplate(); as ht) {
-      <ng-container
-        [ngTemplateOutlet]="ht.template"
-        [ngTemplateOutletContext]="getHeaderContext()"
-      ></ng-container>
+    <ng-container
+      [ngTemplateOutlet]="ht.template"
+      [ngTemplateOutletContext]="getHeaderContext()"
+    ></ng-container>
     } @else {
-    <div class="flex items-center border-b border-neutral-200 px-4 dark:border-neutral-700">
-      <svg
-        class="h-5 w-5 text-neutral-400"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-        />
-      </svg>
-      <div class="relative flex-1">
-        <!-- Styled overlay for syntax highlighting -->
-        <div
-          class="pointer-events-none absolute inset-0 flex items-center whitespace-pre px-3 py-4 text-base"
-          aria-hidden="true"
+    <div class="border-b border-neutral-200 dark:border-neutral-700">
+      <!-- Breadcrumb (when action is locked) -->
+      @if (lockedAction(); as action) {
+      <div class="flex flex-wrap items-center gap-1 px-4 py-2 text-sm">
+        <button
+          type="button"
+          (click)="unlockActionFromUI()"
+          class="inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2 py-1 font-medium text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/60"
         >
-          <span class="text-neutral-900 dark:text-neutral-100">{{ searchTerm() }}</span>@for (arg of argsArrayDisplay(); track $index) {<span class="text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span><span [class]="getParamColor($index)">{{ arg }}</span>}@if (hasSeparator() && (argsArrayDisplay().length === 0 || args().endsWith(' '))) {<span class="text-neutral-900 dark:text-neutral-100">{{ service.config().argSeparator }}</span>}@if (currentParamValue(); as partial) {<span [class]="getParamColor(currentParamIndex() ?? 0)">{{ partial }}</span>}@if (typeaheadSuggestion(); as ghost) {<span class="text-neutral-400 dark:text-neutral-500">{{ ghost }}</span>}
-        </div>
-        <!-- Transparent input on top -->
+          @if (action.icon) {
+          <span>{{ action.icon }}</span>
+          }
+          {{ action.label }}
+        </button>
+        @for (value of paramValues(); track $index) {
+        <span class="text-neutral-400">›</span>
+        <button
+          type="button"
+          (click)="goToParam($index)"
+          [class]="'rounded-md px-2 py-1 font-medium hover:opacity-80 ' + getParamColor($index)"
+        >
+          <span class="text-xs opacity-60">{{ action.params?.[$index] }}:</span>
+          {{ value }}
+        </button>
+        }
+        @if (currentParamName(); as paramName) {
+        <span class="text-neutral-400">›</span>
+        <span class="text-neutral-500 dark:text-neutral-400 italic">{{ paramName }}:</span>
+        }
+      </div>
+      }
+
+      <!-- Search input row -->
+      <div class="flex items-center px-4">
+        <svg
+          class="h-5 w-5 text-neutral-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          />
+        </svg>
         <input
           #searchInput
           type="text"
-          [placeholder]="service.config().placeholder"
+          [placeholder]="lockedAction() ? (currentParamName() ?? 'Enter value...') : service.config().placeholder"
           [value]="query()"
           (input)="onQueryChange($event)"
           (keydown)="onInputKeydown($event)"
-          class="relative z-10 w-full bg-transparent px-3 py-4 text-base text-transparent caret-neutral-900 placeholder-neutral-400 outline-none dark:caret-neutral-100"
+          class="w-full px-3 py-4 text-base text-neutral-900 placeholder-neutral-400 outline-none dark:text-neutral-100 bg-transparent"
         />
-      </div>
-      <kbd
-        class="rounded border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-500 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
-      >
-        ESC
-      </kbd>
-    </div>
-    }
-
-    <!-- Floating autocomplete overlay -->
-    @if (showAutocomplete() && autocompleteSuggestions().length > 0) {
-    <div class="absolute left-4 right-4 top-[60px] z-20 rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
-      <div #autocompleteContainer class="max-h-48 overflow-y-auto p-1">
-        @for (suggestion of autocompleteSuggestions(); track $index) {
-        <button
-          type="button"
-          [attr.data-autocomplete-index]="$index"
-          (click)="selectAutocompleteSuggestion(suggestion)"
-          (mouseenter)="autocompleteSelectedIndex.set($index)"
-          [class]="
-            'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ' +
-            (autocompleteSelectedIndex() === $index
-              ? 'bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-100'
-              : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700/50')
-          "
+        <kbd
+          class="rounded border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-500 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
         >
-          <span class="flex-1 font-medium">{{ suggestion.label }}</span>
-          @if (suggestion.value !== suggestion.label) {
-          <span class="text-xs text-neutral-500 dark:text-neutral-400">{{ suggestion.value }}</span>
-          }
-        </button>
-        }
+          ESC
+        </kbd>
       </div>
     </div>
     }
 
     <!-- Items list -->
     <div #listContainer class="max-h-80 overflow-y-auto p-2">
-      @if (filteredItems().length === 0) {
-        <!-- Empty state -->
-        @if (emptyTemplate(); as et) {
-          <ng-container
-            [ngTemplateOutlet]="et.template"
-            [ngTemplateOutletContext]="getEmptyContext()"
-          ></ng-container>
-        } @else {
-        <div class="px-3 py-8 text-center text-neutral-500">
-          No results found
-        </div>
-        }
+      @if (displayItems().length === 0) {
+      <!-- Empty state -->
+      @if (emptyTemplate(); as et) {
+      <ng-container
+        [ngTemplateOutlet]="et.template"
+        [ngTemplateOutletContext]="getEmptyContext()"
+      ></ng-container>
       } @else {
-        @for (item of filteredItems(); track item.id; let i = $index) {
-          <!-- Custom item template -->
-          @if (itemTemplate(); as it) {
-            <ng-container
-              [ngTemplateOutlet]="it.template"
-              [ngTemplateOutletContext]="getItemContext(item, i)"
-            ></ng-container>
-          } @else {
-          <!-- Default item -->
-          <button
-            type="button"
-            (click)="selectedIndex() === i && canExecute() && executeItem(item)"
-            (mouseenter)="selectedIndex.set(i)"
-            [attr.data-index]="i"
-            [class]="
-            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ' +
-            (selectedIndex() === i
-            ? (canExecute() ? 'bg-neutral-100 dark:bg-neutral-800' : 'bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800')
-            : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50')
-            "
-          >
-            @if (item.iconClass) {
-            <i [class]="item.iconClass + ' text-lg text-neutral-600 dark:text-neutral-300'"></i>
-            } @else if (item.icon) {
-            <span class="text-lg">{{ item.icon }}</span>
-            } @else {
-            <span
-              class="flex h-6 w-6 items-center justify-center rounded bg-neutral-200 text-xs font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
-            >
-              {{ item.category === 'page' ? 'P' : 'C' }}
-            </span>
-            }
-            <div class="flex-1 min-w-0">
-              <div class="truncate font-medium text-neutral-900 dark:text-neutral-100">
-                {{ item.label }}@if (item.params) { @for (param of item.params; track $index) {<span class="whitespace-pre"> </span><span [class]="getParamColor($index)">&lt;{{ param }}&gt;</span>}@if (item.paramProviders) {<span class="ml-2 inline-flex items-center rounded border border-neutral-300 bg-neutral-100 px-1 py-0.5 text-[10px] font-normal text-neutral-500 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-400">Tab</span>}}
-              </div>
-              @if (item.description) {
-              <div class="truncate text-sm text-neutral-500 dark:text-neutral-400">
-                {{ item.description }}
-              </div>
-              }
-            </div>
-            <span
-              class="rounded-full px-2 py-0.5 text-xs"
-              [class]="
-              item.category === 'page'
-              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-              : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-              "
-            >
-              {{ item.category }}
-            </span>
-          </button>
-          }
+      <div class="px-3 py-8 text-center text-neutral-500">
+        @if (lockedAction()) {
+        @if (hasAutocomplete()) {
+        Type to search...
+        } @else {
+        Enter a value and press Tab or Enter
         }
+        } @else {
+        No results found
+        }
+      </div>
+      }
+      } @else {
+      @for (item of displayItems(); track item.id; let i = $index) {
+      <!-- Custom item template -->
+      @if (itemTemplate(); as it) {
+      <ng-container
+        [ngTemplateOutlet]="it.template"
+        [ngTemplateOutletContext]="getItemContext(item, i)"
+      ></ng-container>
+      } @else {
+      <!-- Default item -->
+      <button
+        type="button"
+        (click)="onItemClick(item, i)"
+        (mouseenter)="selectedIndex.set(i)"
+        [attr.data-index]="i"
+        [class]="
+        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ' +
+        (selectedIndex() === i
+        ? 'bg-neutral-100 dark:bg-neutral-800'
+        : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50')
+        "
+      >
+        @if (!lockedAction()) {
+        <!-- Action mode: show icon -->
+        @if (item.iconClass) {
+        <i [class]="item.iconClass + ' text-lg text-neutral-600 dark:text-neutral-300'"></i>
+        } @else if (item.icon) {
+        <span class="text-lg">{{ item.icon }}</span>
+        } @else {
+        <span
+          class="flex h-6 w-6 items-center justify-center rounded bg-neutral-200 text-xs font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+        >
+          {{ item.category === 'page' ? 'P' : 'C' }}
+        </span>
+        }
+        }
+        <div class="flex-1 min-w-0">
+          <div class="truncate font-medium text-neutral-900 dark:text-neutral-100">
+            {{ item.label }}@if (!lockedAction() && item.params) { @for (param of item.params; track $index) {<span class="whitespace-pre"> </span><span [class]="getParamColor($index)">&lt;{{ param }}&gt;</span>}@if (item.paramProviders) {<span class="ml-2 inline-flex items-center rounded border border-neutral-300 bg-neutral-100 px-1 py-0.5 text-[10px] font-normal text-neutral-500 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-400">Tab</span>}}
+          </div>
+          @if (item.description) {
+          <div class="truncate text-sm text-neutral-500 dark:text-neutral-400">
+            {{ item.description }}
+          </div>
+          }
+        </div>
+        @if (!lockedAction()) {
+        <span
+          class="rounded-full px-2 py-0.5 text-xs"
+          [class]="
+          item.category === 'page'
+          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+          : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+          "
+        >
+          {{ item.category }}
+        </span>
+        }
+      </button>
+      }
+      }
       }
     </div>
 
     <!-- Footer -->
     @if (footerTemplate(); as ft) {
-      <ng-container
-        [ngTemplateOutlet]="ft.template"
-        [ngTemplateOutletContext]="getFooterContext()"
-      ></ng-container>
+    <ng-container
+      [ngTemplateOutlet]="ft.template"
+      [ngTemplateOutletContext]="getFooterContext()"
+    ></ng-container>
     } @else {
     <div
       class="flex items-center justify-between border-t border-neutral-200 px-4 py-2 text-xs text-neutral-500 dark:border-neutral-700"
@@ -184,8 +194,20 @@
           navigate
         </span>
         <span class="flex items-center gap-1">
+          <kbd class="rounded border border-neutral-300 bg-neutral-100 px-1 dark:border-neutral-600 dark:bg-neutral-800">Tab</kbd>
+          @if (lockedAction()) {
+          next
+          } @else {
+          params
+          }
+        </span>
+        <span class="flex items-center gap-1">
           <kbd class="rounded border border-neutral-300 bg-neutral-100 px-1 dark:border-neutral-600 dark:bg-neutral-800">↵</kbd>
+          @if (lockedAction()) {
+          execute
+          } @else {
           select
+          }
         </span>
       </div>
       <span>gigamenu</span>
