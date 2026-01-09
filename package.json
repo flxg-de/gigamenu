@@ -1,6 +1,6 @@
 {
   "name": "@flxgde/gigamenu",
-  "version": "0.2.1-snapshot",
+  "version": "0.3.0",
   "description": "A keyboard-driven command palette menu for Angular applications",
   "keywords": [
     "angular",
