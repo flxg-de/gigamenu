@@ -25,20 +25,26 @@ export interface GigamenuEmptyContext {
  * Context provided to the header template.
  */
 export interface GigamenuHeaderContext {
-  /** The current full query */
+  /** The current query value */
   $implicit: string;
-  /** The search term (before separator) */
-  searchTerm: string;
-  /** The arguments (after separator) */
-  args: string;
-  /** Whether the query contains a separator */
-  hasSeparator: boolean;
+  /** The current query value */
+  query: string;
+  /** The locked action (if in parameter mode) */
+  lockedAction: GigamenuItem | null;
+  /** Array of filled parameter values */
+  paramValues: string[];
+  /** Name of the current parameter being edited */
+  currentParamName: string | null;
+  /** Placeholder text */
+  placeholder: string;
   /** Callback to update the query */
   onQueryChange: (value: string) => void;
   /** Callback for keydown events */
   onKeydown: (event: KeyboardEvent) => void;
-  /** Placeholder text */
-  placeholder: string;
+  /** Callback to unlock the action (go back to action selection) */
+  onUnlockAction: () => void;
+  /** Callback to go back to a specific parameter */
+  onGoToParam: (index: number) => void;
 }
 
 /**
@@ -149,28 +155,28 @@ export class GigamenuFooterTemplate {
  * ```
  */
 export interface GigamenuPanelContext {
-  /** Filtered items to display */
+  /** Items to display (actions or autocomplete suggestions) */
   $implicit: GigamenuItem[];
-  /** Current full query */
+  /** Items to display (actions or autocomplete suggestions) */
+  items: GigamenuItem[];
+  /** Current query value */
   query: string;
-  /** The search term (before separator) */
-  searchTerm: string;
-  /** The arguments (after separator) */
-  args: string;
-  /** Whether the query contains a separator */
-  hasSeparator: boolean;
+  /** The locked action (if in parameter mode) */
+  lockedAction: GigamenuItem | null;
+  /** Array of filled parameter values */
+  paramValues: string[];
   /** Currently selected index */
   selectedIndex: number;
-  /** Callback to execute an item */
-  executeItem: (item: GigamenuItem) => void;
-  /** Callback to update selection */
-  setSelectedIndex: (index: number) => void;
-  /** Callback to update query */
-  setQuery: (query: string) => void;
-  /** Callback to close the menu */
-  close: () => void;
   /** Placeholder text from config */
   placeholder: string;
+  /** Callback when item is clicked */
+  onItemClick: (item: GigamenuItem, index: number) => void;
+  /** Callback to update selection */
+  onSelectIndex: (index: number) => void;
+  /** Callback to update query */
+  onQueryChange: (query: string) => void;
+  /** Callback to close the menu */
+  onClose: () => void;
 }
 
 @Directive({

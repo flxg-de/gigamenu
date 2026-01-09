@@ -38,8 +38,13 @@ export class AppComponent implements OnInit {
       maxResults: 10,
     });
 
-    // Auto-discover routes from the router
-    this.gigamenu.discoverRoutes();
+    // Auto-discover routes from the router, but exclude /users/:id (we register it manually with autocomplete)
+    this.gigamenu.discoverRoutes({
+      filter: (route) => {
+        // Exclude /users/:id since we register it manually with autocomplete
+        return route.fullPath !== '/users/:id';
+      },
+    });
 
     // Register some custom commands
     this.gigamenu.registerCommand({
@@ -74,5 +79,29 @@ export class AppComponent implements OnInit {
         navigator.clipboard.writeText(window.location.href);
       },
     });
+
+    // User data for autocomplete examples
+    const users = [
+      { id: '1', name: 'Alice Johnson' },
+      { id: '2', name: 'Bob Smith' },
+      { id: '3', name: 'Felix Gebauer' },
+      { id: '4', name: 'Diana Prince' },
+      { id: '5', name: 'Eve Anderson' },
+    ];
+
+    // Register a PAGE with autocomplete (navigates to /users/:id)
+    this.gigamenu.registerPage({
+      id: 'page:user-profile',
+      path: '/users/:id',
+      label: 'User Profile',
+      description: 'Navigate to user profile by name',
+      icon: '👤',
+      keywords: ['user', 'profile', 'person'],
+      params: ['id'],  // Override auto-extracted param name for clarity
+      paramProviders: {
+        id: users.map((u) => ({ label: u.name, value: u.id })),
+      },
+    });
+
   }
 }

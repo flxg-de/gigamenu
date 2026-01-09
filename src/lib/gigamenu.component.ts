@@ -9,24 +9,49 @@ import {
   HostListener,
   PLATFORM_ID,
   Inject,
-  TemplateRef,
 } from '@angular/core';
 import { isPlatformBrowser, NgTemplateOutlet } from '@angular/common';
 import { GigamenuService } from './gigamenu.service';
 import { FrecencyService } from './frecency.service';
-import { GigamenuItem, PARAM_COLORS } from './types';
+import { GigamenuItem, AutocompleteOption } from './types';
 import {
   GigamenuItemTemplate,
   GigamenuEmptyTemplate,
   GigamenuHeaderTemplate,
   GigamenuFooterTemplate,
   GigamenuPanelTemplate,
-  GigamenuItemContext,
-  GigamenuEmptyContext,
-  GigamenuHeaderContext,
-  GigamenuFooterContext,
-  GigamenuPanelContext,
 } from './gigamenu-templates.directive';
+import { QueryParser } from './query-parser';
+import { InputState, computeInputState } from './input-state';
+import {
+  // Scroll utilities
+  scrollSelectedIntoView,
+  // Search functions
+  filterItems,
+  sortByFrecency,
+  // Parameter state functions
+  computeHasAutocomplete,
+  // Template context functions
+  getParamColor,
+  createItemContext,
+  createEmptyContext,
+  createFooterContext,
+  // Menu lifecycle functions
+  isInputFocused,
+  // Autocomplete functions
+  fetchAutocompleteSuggestions,
+  filterSuggestionsClientSide,
+  // Keyboard handler functions
+  handleGlobalKeydown,
+  handleZshShortcuts,
+  handleActionSelectionKeydown,
+  handleParameterInputKeydown,
+  hasActions,
+  // Types
+  type MenuAction,
+  type ActionSelectionContext,
+  type ParameterInputContext,
+} from './core';
 
 @Component({
   selector: 'gm-gigamenu',
@@ -51,79 +76,94 @@ export class GigamenuComponent {
   protected readonly footerTemplate = contentChild(GigamenuFooterTemplate);
   protected readonly panelTemplate = contentChild(GigamenuPanelTemplate);
 
+  // Core state signals
   protected readonly query = signal('');
   protected readonly selectedIndex = signal(0);
 
-  /** Parsed search term (before first separator) */
-  protected readonly searchTerm = computed(() => {
-    const q = this.query();
+  // Step-by-step input state
+  protected readonly lockedAction = signal<GigamenuItem | null>(null);
+  protected readonly paramValues = signal<string[]>([]);
+
+  // Autocomplete state signals
+  protected readonly autocompleteSuggestions = signal<AutocompleteOption[]>([]);
+  private autocompleteCache = new Map<string, AutocompleteOption[]>();
+  private readonly selectedParamOptions = signal<Map<number, AutocompleteOption>>(new Map());
+
+  // Query parsing (simplified - only used for filtering)
+  private readonly queryParser = computed(() => {
     const separator = this.service.config().argSeparator ?? ' ';
-    const sepIndex = q.indexOf(separator);
-    if (sepIndex === -1) return q;
-    return q.substring(0, sepIndex);
+    return new QueryParser(separator);
   });
 
-  /** Parsed arguments (after first separator) */
-  protected readonly args = computed(() => {
-    const q = this.query();
-    const separator = this.service.config().argSeparator ?? ' ';
-    const sepIndex = q.indexOf(separator);
-    if (sepIndex === -1) return '';
-    return q.substring(sepIndex + separator.length);
-  });
-
-  /** Whether the query contains a separator (for display purposes) */
-  protected readonly hasSeparator = computed(() => {
-    const q = this.query();
-    const separator = this.service.config().argSeparator ?? ' ';
-    return q.includes(separator);
-  });
-
-  /** Parsed arguments as array */
-  protected readonly argsArray = computed(() => {
-    const args = this.args();
-    if (!args) return [];
-    return args.split(/\s+/).filter(Boolean);
-  });
-
-  /** Currently selected item */
+  // Selected item from display list
   protected readonly selectedItem = computed(() => {
-    const items = this.filteredItems();
+    const items = this.displayItems();
     const index = this.selectedIndex();
     return items[index] ?? null;
   });
 
-  /** Whether the selected item can be executed (has all required params) */
-  protected readonly canExecute = computed(() => {
-    const item = this.selectedItem();
-    if (!item) return false;
-    if (!item.params || item.params.length === 0) return true;
-    return this.argsArray().length >= item.params.length;
+  protected readonly currentParamIndex = computed(() => {
+    const action = this.lockedAction();
+    if (!action || !action.params) return null;
+    const filled = this.paramValues().length;
+    if (filled >= action.params.length) return null;
+    return filled;
   });
 
-  /** Get color class for a parameter index */
-  protected getParamColor(index: number): string {
-    return PARAM_COLORS[index % PARAM_COLORS.length];
-  }
+  protected readonly currentParamName = computed(() => {
+    const action = this.lockedAction();
+    const idx = this.currentParamIndex();
+    if (!action || idx === null || !action.params) return null;
+    return action.params[idx] ?? null;
+  });
+
+  protected readonly hasAutocomplete = computed(() => {
+    const action = this.lockedAction();
+    const paramName = this.currentParamName();
+    if (!action || !paramName) return false;
+    return computeHasAutocomplete(action, paramName);
+  });
+
+  protected readonly currentState = computed((): InputState => {
+    return computeInputState({
+      isOpen: this.service.isOpen(),
+      hasLockedAction: this.lockedAction() !== null,
+    });
+  });
 
   protected readonly filteredItems = computed(() => {
-    const searchTerm = this.searchTerm().toLowerCase().trim();
+    const searchTerm = this.query().toLowerCase().trim();
     const items = this.service.items();
     const maxResults = this.service.config().maxResults ?? 10;
 
     if (!searchTerm) {
-      // No query: sort by frecency scores from empty searches
       const scores = this.frecency.getScores('');
-      return this.sortByFrecency(items, scores).slice(0, maxResults);
+      return sortByFrecency(items, scores).slice(0, maxResults);
     }
 
-    // Filter matching items using only search term (not args)
-    const matched = items.filter((item) => this.matchesQuery(item, searchTerm));
-
-    // Sort by frecency for this search term
+    const matched = filterItems(items, searchTerm, this.queryParser());
     const scores = this.frecency.getScores(searchTerm);
-    return this.sortByFrecency(matched, scores).slice(0, maxResults);
+    return sortByFrecency(matched, scores).slice(0, maxResults);
   });
+
+  // Display items: actions in ActionSelection, suggestions in ParameterInput
+  protected readonly displayItems = computed((): GigamenuItem[] => {
+    const state = this.currentState();
+    if (state === InputState.ParameterInput) {
+      // In parameter mode, show autocomplete suggestions as items
+      return this.autocompleteSuggestions().map((opt) => ({
+        id: `suggestion-${opt.value}`,
+        label: opt.label,
+        description: opt.value !== opt.label ? opt.value : undefined,
+        category: 'command' as const,
+        action: () => {}, // Handled via selectSuggestion action
+      }));
+    }
+    return this.filteredItems();
+  });
+
+  // Template helper
+  protected getParamColor = getParamColor;
 
   constructor(
     protected readonly service: GigamenuService,
@@ -132,19 +172,23 @@ export class GigamenuComponent {
   ) {
     this.isBrowser = isPlatformBrowser(platformId);
 
+    // Focus effect
     effect(() => {
       if (this.service.isOpen() && this.isBrowser) {
         setTimeout(() => this.searchInput()?.nativeElement.focus(), 0);
       }
     });
 
+    // Frecency auto-select effect (only in ActionSelection mode)
     effect(() => {
-      const items = this.filteredItems();
-      const searchTerm = this.searchTerm();
+      const state = this.currentState();
+      if (state !== InputState.ActionSelection) return;
 
-      // Check for auto-select based on frecency
-      if (searchTerm && items.length > 0) {
-        const topMatch = this.frecency.getTopMatch(searchTerm);
+      const items = this.filteredItems();
+      const query = this.query();
+
+      if (query && items.length > 0) {
+        const topMatch = this.frecency.getTopMatch(query);
         if (topMatch) {
           const idx = items.findIndex((item) => item.id === topMatch);
           if (idx !== -1) {
@@ -153,8 +197,28 @@ export class GigamenuComponent {
           }
         }
       }
-
       this.selectedIndex.set(0);
+    });
+
+    // Autocomplete effect (only in ParameterInput mode)
+    effect(() => {
+      const action = this.lockedAction();
+      const paramIndex = this.currentParamIndex();
+      const paramName = this.currentParamName();
+      const paramValue = this.query(); // In ParameterInput, query is the param value
+
+      if (!action || paramIndex === null || !paramName) {
+        this.autocompleteSuggestions.set([]);
+        return;
+      }
+
+      const provider = action.paramProviders?.[paramName];
+      if (!provider) {
+        this.autocompleteSuggestions.set([]);
+        return;
+      }
+
+      this.fetchSuggestions(provider, paramValue);
     });
   }
 
@@ -162,67 +226,127 @@ export class GigamenuComponent {
   onGlobalKeydown(event: KeyboardEvent): void {
     if (!this.isBrowser) return;
 
-    if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
-      event.preventDefault();
-      this.service.toggle();
-      return;
-    }
+    const action = handleGlobalKeydown(event, {
+      isOpen: this.service.isOpen(),
+      isInputFocused: isInputFocused(),
+    });
 
-    if (event.key === '/' && !this.isInputFocused()) {
+    if (action) {
       event.preventDefault();
-      this.service.open();
-      return;
-    }
-
-    if (event.key === 'Escape' && this.service.isOpen()) {
-      event.preventDefault();
-      this.close();
+      this.dispatchAction(action);
     }
   }
 
   protected onInputKeydown(event: KeyboardEvent): void {
-    const items = this.filteredItems();
+    const state = this.currentState();
 
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault();
-        this.selectedIndex.update((i) => Math.min(i + 1, items.length - 1));
-        this.scrollSelectedIntoView();
-        break;
+    // Handle zsh-like shortcuts first
+    const newQuery = handleZshShortcuts(event, this.query());
+    if (newQuery !== null) {
+      event.preventDefault();
+      this.query.set(newQuery);
+      return;
+    }
 
-      case 'ArrowUp':
-        event.preventDefault();
-        this.selectedIndex.update((i) => Math.max(i - 1, 0));
-        this.scrollSelectedIntoView();
-        break;
+    // Get actions from state-specific handler
+    const actions = this.getActionsForState(state, event);
 
-      case 'Enter':
-        event.preventDefault();
-        if (this.canExecute()) {
-          const selected = items[this.selectedIndex()];
-          if (selected) {
-            this.executeItem(selected);
-          }
-        }
-        break;
-
-      case 'Escape':
-        event.preventDefault();
-        this.close();
-        break;
+    if (hasActions(actions)) {
+      event.preventDefault();
+      actions.forEach((action) => this.dispatchAction(action));
     }
   }
 
-  private scrollSelectedIntoView(): void {
-    const container = this.listContainer()?.nativeElement;
-    if (!container) return;
+  private getActionsForState(state: InputState, event: KeyboardEvent): MenuAction[] {
+    switch (state) {
+      case InputState.ActionSelection: {
+        const ctx: ActionSelectionContext = {
+          items: this.displayItems(),
+          selectedIndex: this.selectedIndex(),
+          selectedItem: this.selectedItem(),
+        };
+        return handleActionSelectionKeydown(event, ctx);
+      }
+      case InputState.ParameterInput: {
+        const action = this.lockedAction();
+        if (!action) return [];
+        const ctx: ParameterInputContext = {
+          lockedItem: action,
+          currentParamIndex: this.currentParamIndex() ?? 0,
+          paramValues: this.paramValues(),
+          query: this.query(),
+          suggestions: this.autocompleteSuggestions(),
+          selectedSuggestionIndex: this.selectedIndex(),
+        };
+        return handleParameterInputKeydown(event, ctx);
+      }
+      default:
+        return [];
+    }
+  }
 
-    const selectedButton = container.querySelector(
-      `[data-index="${this.selectedIndex()}"]`
-    ) as HTMLElement | null;
-
-    if (selectedButton) {
-      selectedButton.scrollIntoView({ block: 'nearest' });
+  private dispatchAction(action: MenuAction): void {
+    switch (action.type) {
+      case 'setSelectedIndex':
+        this.selectedIndex.set(action.value);
+        break;
+      case 'setQuery':
+        this.query.set(action.value);
+        break;
+      case 'executeAction':
+        // Execute an action directly (no params)
+        this.executeItemWithArgs(action.item, []);
+        break;
+      case 'executeLockedAction':
+        // Build args from current state (includes any changes from selectSuggestion)
+        const lockedItem = this.lockedAction();
+        if (lockedItem) {
+          const args = this.buildArgsWithValues();
+          this.executeItemWithArgs(lockedItem, args);
+        }
+        break;
+      case 'close':
+        this.close();
+        break;
+      case 'toggle':
+        this.service.toggle();
+        break;
+      case 'open':
+        this.service.open();
+        break;
+      case 'scrollIntoView':
+        scrollSelectedIntoView(this.listContainer()?.nativeElement ?? null, this.selectedIndex());
+        break;
+      case 'lockAction':
+        this.lockedAction.set(action.item);
+        this.query.set('');
+        this.selectedIndex.set(0);
+        break;
+      case 'unlockAction':
+        this.lockedAction.set(null);
+        this.paramValues.set([]);
+        this.query.set('');
+        this.selectedIndex.set(0);
+        break;
+      case 'nextParameter':
+        // Push current query value to paramValues, clear query
+        this.paramValues.update((values) => [...values, this.query()]);
+        this.query.set('');
+        this.selectedIndex.set(0);
+        break;
+      case 'previousParameter':
+        // Pop last param value back to query
+        const values = this.paramValues();
+        if (values.length > 0) {
+          const lastValue = values[values.length - 1];
+          this.paramValues.update((v) => v.slice(0, -1));
+          this.query.set(lastValue);
+          this.selectedIndex.set(0);
+        }
+        break;
+      case 'selectSuggestion':
+        this.selectSuggestion(action.option);
+        break;
     }
   }
 
@@ -237,107 +361,181 @@ export class GigamenuComponent {
     }
   }
 
-  protected executeItem(item: GigamenuItem): void {
-    // Record the selection for frecency learning (use search term, not full query)
-    const searchTerm = this.searchTerm();
-    this.frecency.recordSelection(searchTerm, item.id);
+  protected onItemClick(item: GigamenuItem, index: number): void {
+    // Only proceed if this is the selected item
+    if (this.selectedIndex() !== index) {
+      this.selectedIndex.set(index);
+      return;
+    }
 
-    // Get args before closing (which resets query)
-    const args = this.args() || undefined;
+    const state = this.currentState();
+    if (state === InputState.ParameterInput) {
+      // In parameter mode, clicking selects the suggestion
+      const suggestions = this.autocompleteSuggestions();
+      const option = suggestions[index];
+      if (option) {
+        this.selectSuggestion(option);
+      }
+    } else {
+      // In action selection mode, trigger the action selection
+      const actions = handleActionSelectionKeydown(
+        new KeyboardEvent('keydown', { key: 'Enter' }),
+        {
+          items: this.displayItems(),
+          selectedIndex: index,
+          selectedItem: item,
+        }
+      );
+      actions.forEach((action) => this.dispatchAction(action));
+    }
+  }
+
+  private executeItemWithArgs(item: GigamenuItem, args: string[]): void {
+    // Record frecency for the action
+    this.frecency.recordSelection(this.query(), item.id);
+
+    // Build args string from array
+    const argsStr = args.length > 0 ? args.join(' ') : undefined;
 
     this.close();
-    item.action(args);
+    item.action(argsStr);
   }
 
-  // Template context getters
-  protected getItemContext(item: GigamenuItem, index: number): GigamenuItemContext {
-    return {
-      $implicit: item,
-      index,
-      selected: this.selectedIndex() === index,
-    };
+  private selectSuggestion(option: AutocompleteOption): void {
+    // Set the query to the selected option's label (for display)
+    this.query.set(option.label);
+
+    // Track the selected option for value substitution when executing
+    const paramIndex = this.currentParamIndex();
+    if (paramIndex !== null) {
+      this.selectedParamOptions.update((map) => {
+        const newMap = new Map(map);
+        newMap.set(paramIndex, option);
+        return newMap;
+      });
+    }
   }
 
-  protected getEmptyContext(): GigamenuEmptyContext {
+  /**
+   * Build args array using values from selectedParamOptions when available.
+   * For each param, if a suggestion was selected, use its value; otherwise use the typed text.
+   */
+  private buildArgsWithValues(): string[] {
+    const paramValues = this.paramValues();
+    const currentQuery = this.query();
+    const selectedOptions = this.selectedParamOptions();
+
+    const args: string[] = [];
+
+    // Add completed param values (use selected option's value if available)
+    for (let i = 0; i < paramValues.length; i++) {
+      const selectedOption = selectedOptions.get(i);
+      if (selectedOption) {
+        args.push(selectedOption.value);
+      } else {
+        args.push(paramValues[i]);
+      }
+    }
+
+    // Add current param value (use selected option's value if available)
+    if (currentQuery) {
+      const currentParamIdx = this.currentParamIndex();
+      if (currentParamIdx !== null) {
+        const selectedOption = selectedOptions.get(currentParamIdx);
+        if (selectedOption) {
+          args.push(selectedOption.value);
+        } else {
+          args.push(currentQuery);
+        }
+      } else {
+        args.push(currentQuery);
+      }
+    }
+
+    return args.filter(Boolean);
+  }
+
+  // Template context methods
+  protected getItemContext(item: GigamenuItem, index: number) {
+    return createItemContext(item, index, this.selectedIndex());
+  }
+
+  protected getEmptyContext() {
+    return createEmptyContext(this.query());
+  }
+
+  protected getFooterContext() {
+    return createFooterContext(this.displayItems().length, this.service.items().length);
+  }
+
+  protected getHeaderContext() {
     return {
       $implicit: this.query(),
-    };
-  }
-
-  protected getHeaderContext(): GigamenuHeaderContext {
-    return {
-      $implicit: this.query(),
-      searchTerm: this.searchTerm(),
-      args: this.args(),
-      hasSeparator: this.hasSeparator(),
+      query: this.query(),
+      lockedAction: this.lockedAction(),
+      paramValues: this.paramValues(),
+      currentParamName: this.currentParamName(),
+      placeholder: this.service.config().placeholder ?? '',
       onQueryChange: (value: string) => this.query.set(value),
       onKeydown: (event: KeyboardEvent) => this.onInputKeydown(event),
-      placeholder: this.service.config().placeholder ?? '',
+      onUnlockAction: () => this.unlockActionFromUI(),
+      onGoToParam: (index: number) => this.goToParam(index),
     };
   }
 
-  protected getFooterContext(): GigamenuFooterContext {
+  protected getPanelContext() {
     return {
-      $implicit: this.filteredItems().length,
-      total: this.service.items().length,
-    };
-  }
-
-  protected getPanelContext(): GigamenuPanelContext {
-    return {
-      $implicit: this.filteredItems(),
+      $implicit: this.displayItems(),
+      items: this.displayItems(),
       query: this.query(),
-      searchTerm: this.searchTerm(),
-      args: this.args(),
-      hasSeparator: this.hasSeparator(),
+      lockedAction: this.lockedAction(),
+      paramValues: this.paramValues(),
       selectedIndex: this.selectedIndex(),
-      executeItem: (item: GigamenuItem) => this.executeItem(item),
-      setSelectedIndex: (index: number) => this.selectedIndex.set(index),
-      setQuery: (query: string) => this.query.set(query),
-      close: () => this.close(),
       placeholder: this.service.config().placeholder ?? '',
+      onItemClick: (item: GigamenuItem, index: number) => this.onItemClick(item, index),
+      onSelectIndex: (index: number) => this.selectedIndex.set(index),
+      onQueryChange: (query: string) => this.query.set(query),
+      onClose: () => this.close(),
     };
+  }
+
+  // Autocomplete methods
+  private async fetchSuggestions(provider: NonNullable<GigamenuItem['paramProviders']>[string], query: string): Promise<void> {
+    try {
+      const { options, isAsync } = await fetchAutocompleteSuggestions(provider, query, this.autocompleteCache);
+      const filtered = isAsync ? options : filterSuggestionsClientSide(options, query);
+      this.autocompleteSuggestions.set(filtered);
+      this.selectedIndex.set(0);
+    } catch (error) {
+      console.error('Error fetching autocomplete suggestions:', error);
+      this.autocompleteSuggestions.set([]);
+    }
   }
 
   private close(): void {
     this.service.close();
     this.query.set('');
     this.selectedIndex.set(0);
+    this.lockedAction.set(null);
+    this.paramValues.set([]);
+    this.autocompleteCache.clear();
+    this.selectedParamOptions.set(new Map());
   }
 
-  private sortByFrecency(items: GigamenuItem[], scores: Map<string, number>): GigamenuItem[] {
-    if (scores.size === 0) return items;
-
-    return [...items].sort((a, b) => {
-      const scoreA = scores.get(a.id) ?? 0;
-      const scoreB = scores.get(b.id) ?? 0;
-      return scoreB - scoreA;
-    });
+  // Template helper for going back from breadcrumb
+  protected unlockActionFromUI(): void {
+    this.dispatchAction({ type: 'unlockAction' });
   }
 
-  private matchesQuery(item: GigamenuItem, query: string): boolean {
-    const searchableText = [
-      item.label,
-      item.description,
-      ...(item.keywords ?? []),
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-
-    const words = query.split(/\s+/);
-    return words.every((word) => searchableText.includes(word));
-  }
-
-  private isInputFocused(): boolean {
-    const activeElement = document.activeElement;
-    if (!activeElement) return false;
-
-    const tagName = activeElement.tagName.toLowerCase();
-    return (
-      tagName === 'input' ||
-      tagName === 'textarea' ||
-      (activeElement as HTMLElement).isContentEditable
-    );
+  protected goToParam(index: number): void {
+    // Go back to a specific parameter
+    const values = this.paramValues();
+    if (index < values.length) {
+      // Set query to the value at that index
+      this.query.set(values[index]);
+      // Keep only values before that index
+      this.paramValues.set(values.slice(0, index));
+      this.selectedIndex.set(0);
+    }
   }
 }

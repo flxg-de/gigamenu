@@ -1,5 +1,23 @@
 export type GigamenuItemCategory = 'page' | 'command';
 
+/**
+ * Autocomplete option for parameter suggestions.
+ * label: Display text shown in the autocomplete dropdown
+ * value: Actual value that gets passed to the action
+ */
+export interface AutocompleteOption {
+  label: string;
+  value: string;
+}
+
+/**
+ * Provider for autocomplete suggestions.
+ * Can be either a static array of options or an async function that returns options.
+ */
+export type ParamProvider =
+  | AutocompleteOption[]
+  | ((query: string) => Promise<AutocompleteOption[]> | AutocompleteOption[]);
+
 export interface GigamenuItem {
   id: string;
   label: string;
@@ -14,6 +32,12 @@ export interface GigamenuItem {
   action: (args?: string) => void;
   /** Required parameter names for this item (e.g., ['id', 'commentId']) */
   params?: string[];
+  /**
+   * Autocomplete providers for parameters.
+   * Key: parameter name (must match a name in params array)
+   * Value: ParamProvider (static array or async function)
+   */
+  paramProviders?: Record<string, ParamProvider>;
 }
 
 /** Colors for parameter highlighting */
@@ -41,6 +65,10 @@ export interface GigamenuConfig {
   argSeparator?: string;
   /** CSS class name for dark mode (default: 'dark') */
   darkModeClass?: string;
+  /** Tab behavior for autocomplete: 'cycle' always cycles, 'accept-first' accepts on first tab (default: 'cycle') */
+  autocompleteTabBehavior?: 'cycle' | 'accept-first';
+  /** When to dismiss autocomplete overlay: 'on-type' hides on any keystroke, 'manual' only on Escape/selection (default: 'on-type') */
+  autocompleteDismiss?: 'on-type' | 'manual';
 }
 
 export const DEFAULT_CONFIG: GigamenuConfig = {
@@ -49,6 +77,8 @@ export const DEFAULT_CONFIG: GigamenuConfig = {
   autoDiscoverRoutes: true,
   argSeparator: ' ',
   darkModeClass: 'dark',
+  autocompleteTabBehavior: 'cycle',
+  autocompleteDismiss: 'on-type',
 };
 
 /**
