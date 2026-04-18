@@ -8,17 +8,32 @@ import {
   DEFAULT_CONFIG,
   DiscoverRoutesOptions,
   RouteInfo,
+  GigamenuProvider,
+  GigamenuProviderOptions,
 } from './types';
+
+interface RegisteredProvider {
+  provider: GigamenuProvider;
+  options: Required<GigamenuProviderOptions>;
+}
+
+const DEFAULT_PROVIDER_OPTIONS: Required<GigamenuProviderOptions> = {
+  minQueryLength: 2,
+  debounceMs: 200,
+  group: '',
+};
 
 @Injectable({ providedIn: 'root' })
 export class GigamenuService {
   private _router?: Router;
 
   private readonly _items = signal<Map<string, GigamenuItem>>(new Map());
+  private readonly _providers = signal<Map<string, RegisteredProvider>>(new Map());
   private readonly _isOpen = signal(false);
   private readonly _config = signal<GigamenuConfig>(DEFAULT_CONFIG);
 
   readonly items = computed(() => Array.from(this._items().values()));
+  readonly providers = this._providers.asReadonly();
   readonly isOpen = this._isOpen.asReadonly();
   readonly config = this._config.asReadonly();
 
@@ -72,6 +87,36 @@ export class GigamenuService {
       const newItems = new Map(items);
       newItems.delete(id);
       return newItems;
+    });
+  }
+
+  /**
+   * Register a dynamic item provider. The provider is invoked when the user
+   * types in the menu (in action-selection mode) and its results are merged
+   * into the displayed items alongside statically registered items.
+   */
+  registerProvider(
+    id: string,
+    provider: GigamenuProvider,
+    options: GigamenuProviderOptions = {}
+  ): void {
+    const resolved: Required<GigamenuProviderOptions> = {
+      ...DEFAULT_PROVIDER_OPTIONS,
+      ...options,
+    };
+    this._providers.update((providers) => {
+      const next = new Map(providers);
+      next.set(id, { provider, options: resolved });
+      return next;
+    });
+  }
+
+  unregisterProvider(id: string): void {
+    this._providers.update((providers) => {
+      if (!providers.has(id)) return providers;
+      const next = new Map(providers);
+      next.delete(id);
+      return next;
     });
   }
 

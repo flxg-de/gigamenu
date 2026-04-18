@@ -38,6 +38,38 @@ export interface GigamenuItem {
    * Value: ParamProvider (static array or async function)
    */
   paramProviders?: Record<string, ParamProvider>;
+  /**
+   * Optional section/group label. Items supplied by dynamic providers typically
+   * set this so the UI can render them under a heading (e.g. "Recipes").
+   */
+  group?: string;
+  /** Provider id when produced by a dynamic provider. Set automatically. */
+  providerId?: string;
+}
+
+/**
+ * A dynamic provider returns items that depend on the current query, e.g. results
+ * fetched from a server. Returned items skip the built-in fuzzy filter.
+ */
+export type GigamenuProvider = (
+  query: string
+) => Promise<GigamenuProviderItem[]> | GigamenuProviderItem[];
+
+/**
+ * Items returned from a provider. Same shape as GigamenuItem but `category` is
+ * optional — it defaults to 'command'. Providers typically omit it.
+ */
+export type GigamenuProviderItem = Omit<GigamenuItem, 'category'> & {
+  category?: GigamenuItemCategory;
+};
+
+export interface GigamenuProviderOptions {
+  /** Minimum query length before the provider is invoked. Default: 2. */
+  minQueryLength?: number;
+  /** Debounce window in ms before invoking the provider. Default: 200. */
+  debounceMs?: number;
+  /** Optional group label applied to all items from this provider. */
+  group?: string;
 }
 
 /** Colors for parameter highlighting */
