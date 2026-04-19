@@ -192,6 +192,21 @@ export class GigamenuComponent {
       }
     });
 
+    // Scroll lock: prevent page scrolling while the menu is open
+    effect(() => {
+      if (!this.isBrowser) return;
+      const open = this.service.isOpen();
+      const body = document.body;
+      if (open) {
+        const previous = body.style.overflow;
+        body.dataset['gigamenuPrevOverflow'] = previous;
+        body.style.overflow = 'hidden';
+      } else if ('gigamenuPrevOverflow' in body.dataset) {
+        body.style.overflow = body.dataset['gigamenuPrevOverflow'] ?? '';
+        delete body.dataset['gigamenuPrevOverflow'];
+      }
+    });
+
     // Frecency auto-select effect (only in ActionSelection mode)
     effect(() => {
       const state = this.currentState();

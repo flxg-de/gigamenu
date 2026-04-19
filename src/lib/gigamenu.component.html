@@ -1,6 +1,6 @@
 @if (service.isOpen()) {
 <div
-  class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
+  class="fixed inset-0 z-50 flex items-stretch justify-center sm:items-start sm:pt-[15vh]"
   (click)="onBackdropClick($event)"
 >
   <div class="fixed inset-0 bg-black/50 backdrop-blur-sm"></div>
@@ -14,7 +14,7 @@
   } @else {
   <!-- Default panel -->
   <div
-    class="relative z-10 w-full max-w-xl min-h-50 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
+    class="relative z-10 w-full flex flex-col overflow-hidden border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900 sm:max-w-xl sm:min-h-50 sm:flex-none sm:rounded-xl"
     role="dialog"
     aria-modal="true"
     aria-label="Command menu"
@@ -92,7 +92,7 @@
     }
 
     <!-- Items list -->
-    <div #listContainer class="max-h-80 overflow-y-auto p-2">
+    <div #listContainer class="flex-1 overflow-y-auto p-2 sm:flex-none sm:max-h-80">
       @if (displayItems().length === 0) {
       <!-- Empty state -->
       @if (emptyTemplate(); as et) {
