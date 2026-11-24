@@ -269,6 +269,13 @@ export class GigamenuComponent {
       }
     });
 
+    // Reset on close for closes that bypass the component (GigamenuService.close()/toggle());
+    // component-driven closes reset synchronously in close()
+    effect(() => {
+      const open = this.service.isOpen();
+      if (!open && this.service.config().resetOnClose !== false) untracked(() => this.resetState());
+    });
+
     // Scroll lock: prevent page scrolling while the menu is open
     effect(() => {
       if (!this.isBrowser) return;
@@ -476,7 +483,8 @@ export class GigamenuComponent {
         this.close();
         break;
       case 'toggle':
-        this.service.toggle();
+        if (this.service.isOpen()) this.close();
+        else this.service.open();
         break;
       case 'open':
         this.service.open();
@@ -564,6 +572,7 @@ export class GigamenuComponent {
     // Build args string from array
     const argsStr = args.length > 0 ? args.join(' ') : undefined;
 
+    this.resetState(); // selecting an item always starts fresh, regardless of resetOnClose
     this.close();
     item.action(argsStr);
   }
@@ -681,6 +690,11 @@ export class GigamenuComponent {
 
   private close(): void {
     this.service.close();
+    if (this.service.config().resetOnClose !== false) this.resetState();
+  }
+
+  /** Clears query, selection, locked action and parameter state. */
+  private resetState(): void {
     this.query.set('');
     this.selectedIndex.set(0);
     this.lockedAction.set(null);

@@ -101,6 +101,8 @@ export interface GigamenuConfig {
   autocompleteTabBehavior?: 'cycle' | 'accept-first';
   /** When to dismiss autocomplete overlay: 'on-type' hides on any keystroke, 'manual' only on Escape/selection (default: 'on-type') */
   autocompleteDismiss?: 'on-type' | 'manual';
+  /** Reset query, selection, locked action and parameters whenever the menu closes (default: true) */
+  resetOnClose?: boolean;
   /** Rank results by usage (frecency) and persist it to localStorage (default: true) */
   frecency?: boolean;
   /** Show the footer with key hints and branding (default: true) */
@@ -157,6 +159,7 @@ export const DEFAULT_CONFIG: GigamenuConfig = {
   darkModeClass: 'dark',
   autocompleteTabBehavior: 'cycle',
   autocompleteDismiss: 'on-type',
+  resetOnClose: true,
   frecency: true,
   showFooter: true,
   showCategoryTags: true,

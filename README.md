@@ -255,6 +255,7 @@ interface GigamenuConfig {
   darkModeClass?: string;    // CSS class on <html> that enables dark mode (default: 'dark')
   autocompleteTabBehavior?: 'cycle' | 'accept-first'; // default: 'cycle'
   autocompleteDismiss?: 'on-type' | 'manual';         // default: 'on-type'
+  resetOnClose?: boolean;    // Clear query, locked action and parameters when the menu closes (default: true)
   frecency?: boolean;        // Usage-based ranking + localStorage persistence (default: true)
   showFooter?: boolean;      // Footer with key hints and branding (default: true)
   showCategoryTags?: boolean; // "page" / "command" tag on each item (default: true)

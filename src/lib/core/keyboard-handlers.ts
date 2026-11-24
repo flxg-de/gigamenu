@@ -35,7 +35,7 @@ export function handleGlobalKeydown(
   ctx: GlobalKeydownContext
 ): MenuAction | null {
   // Ctrl/Cmd + K: Toggle menu
-  if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     return { type: 'toggle' };
   }
 
@@ -242,7 +242,7 @@ export function handleZshShortcuts(
 ): string | null {
   // Ctrl+W or Alt+Backspace or Ctrl+Backspace: Delete last word
   if (
-    (event.ctrlKey && event.key === 'w') ||
+    (event.ctrlKey && event.key.toLowerCase() === 'w') ||
     (event.altKey && event.key === 'Backspace') ||
     (event.ctrlKey && event.key === 'Backspace')
   ) {
@@ -250,7 +250,7 @@ export function handleZshShortcuts(
   }
 
   // Ctrl+U: Clear line
-  if (event.ctrlKey && event.key === 'u') {
+  if (event.ctrlKey && event.key.toLowerCase() === 'u') {
     return '';
   }
 
