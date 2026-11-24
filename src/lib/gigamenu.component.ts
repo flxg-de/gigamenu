@@ -8,13 +8,15 @@ import {
   viewChild,
   contentChild,
   HostListener,
+  DestroyRef,
+  inject,
   PLATFORM_ID,
   Inject,
 } from '@angular/core';
 import { isPlatformBrowser, NgTemplateOutlet } from '@angular/common';
 import { GigamenuService } from './gigamenu.service';
 import { FrecencyService } from './frecency.service';
-import { GigamenuItem, AutocompleteOption, GigamenuProviderItem } from './types';
+import { GigamenuItem, AutocompleteOption, GigamenuProviderItem, DEFAULT_LABELS } from './types';
 import {
   GigamenuItemTemplate,
   GigamenuEmptyTemplate,
@@ -59,9 +61,63 @@ import {
   standalone: true,
   imports: [NgTemplateOutlet],
   templateUrl: 'gigamenu.component.html',
+  host: { '[attr.data-gm-dark]': 'dark() ? "" : null' },
   styles: `
     :host {
       display: contents;
+      /*
+       * Theme tokens. Override any --gm-* variable on gm-gigamenu or :root;
+       * the private --_gm-* variables only provide the defaults.
+       */
+      --_gm-bg: var(--gm-bg, oklch(100% 0 0));
+      --_gm-fg: var(--gm-fg, oklch(20.5% 0 0));
+      --_gm-fg-muted: var(--gm-fg-muted, oklch(55.6% 0 0));
+      --_gm-fg-subtle: var(--gm-fg-subtle, oklch(70.8% 0 0));
+      --_gm-fg-icon: var(--gm-fg-icon, oklch(43.9% 0 0));
+      --_gm-border: var(--gm-border, oklch(92.2% 0 0));
+      --_gm-hover-bg: var(--gm-hover-bg, oklch(98.5% 0 0));
+      --_gm-selected-bg: var(--gm-selected-bg, oklch(97% 0 0));
+      --_gm-badge-bg: var(--gm-badge-bg, oklch(92.2% 0 0));
+      --_gm-kbd-bg: var(--gm-kbd-bg, oklch(97% 0 0));
+      --_gm-kbd-border: var(--gm-kbd-border, oklch(87% 0 0));
+      --_gm-accent-bg: var(--gm-accent-bg, oklch(93.2% 0.032 255.585));
+      --_gm-accent-hover-bg: var(--gm-accent-hover-bg, oklch(88.2% 0.059 254.128));
+      --_gm-accent-fg: var(--gm-accent-fg, oklch(42.4% 0.199 265.638));
+      --_gm-page-bg: var(--gm-page-bg, oklch(93.2% 0.032 255.585));
+      --_gm-page-fg: var(--gm-page-fg, oklch(48.8% 0.243 264.376));
+      --_gm-command-bg: var(--gm-command-bg, oklch(94.6% 0.033 307.174));
+      --_gm-command-fg: var(--gm-command-fg, oklch(49.6% 0.265 301.924));
+      --_gm-param-1: var(--gm-param-1, oklch(62.3% 0.214 259.815));
+      --_gm-param-2: var(--gm-param-2, oklch(72.3% 0.219 149.579));
+      --_gm-param-3: var(--gm-param-3, oklch(70.5% 0.213 47.604));
+      --_gm-param-4: var(--gm-param-4, oklch(65.6% 0.241 354.308));
+      --_gm-param-5: var(--gm-param-5, oklch(71.5% 0.143 215.221));
+      --_gm-radius: var(--gm-radius, 0.75rem);
+      --_gm-overlay: var(--gm-overlay, rgb(0 0 0 / 50%));
+    }
+    :host([data-gm-dark]) {
+      --_gm-bg: var(--gm-bg, oklch(20.5% 0 0));
+      --_gm-fg: var(--gm-fg, oklch(97% 0 0));
+      --_gm-fg-muted: var(--gm-fg-muted, oklch(70.8% 0 0));
+      --_gm-fg-icon: var(--gm-fg-icon, oklch(87% 0 0));
+      --_gm-border: var(--gm-border, oklch(37.1% 0 0));
+      --_gm-hover-bg: var(--gm-hover-bg, oklch(26.9% 0 0 / 50%));
+      --_gm-selected-bg: var(--gm-selected-bg, oklch(26.9% 0 0));
+      --_gm-badge-bg: var(--gm-badge-bg, oklch(37.1% 0 0));
+      --_gm-kbd-bg: var(--gm-kbd-bg, oklch(26.9% 0 0));
+      --_gm-kbd-border: var(--gm-kbd-border, oklch(43.9% 0 0));
+      --_gm-accent-bg: var(--gm-accent-bg, oklch(37.9% 0.146 265.522 / 40%));
+      --_gm-accent-hover-bg: var(--gm-accent-hover-bg, oklch(37.9% 0.146 265.522 / 60%));
+      --_gm-accent-fg: var(--gm-accent-fg, oklch(80.9% 0.105 251.813));
+      --_gm-page-bg: var(--gm-page-bg, oklch(37.9% 0.146 265.522 / 30%));
+      --_gm-page-fg: var(--gm-page-fg, oklch(70.7% 0.165 254.624));
+      --_gm-command-bg: var(--gm-command-bg, oklch(38.1% 0.176 304.987 / 30%));
+      --_gm-command-fg: var(--gm-command-fg, oklch(71.4% 0.203 305.504));
+      --_gm-param-1: var(--gm-param-1, oklch(70.7% 0.165 254.624));
+      --_gm-param-2: var(--gm-param-2, oklch(79.2% 0.209 151.711));
+      --_gm-param-3: var(--gm-param-3, oklch(75% 0.183 55.934));
+      --_gm-param-4: var(--gm-param-4, oklch(71.8% 0.202 349.761));
+      --_gm-param-5: var(--gm-param-5, oklch(78.9% 0.154 211.53));
     }
   `,
 })
@@ -76,6 +132,13 @@ export class GigamenuComponent {
   protected readonly headerTemplate = contentChild(GigamenuHeaderTemplate);
   protected readonly footerTemplate = contentChild(GigamenuFooterTemplate);
   protected readonly panelTemplate = contentChild(GigamenuPanelTemplate);
+
+  // Dark mode: mirrors the configured dark mode class on <html>
+  protected readonly dark = signal(false);
+  protected readonly labels = computed(() => ({
+    ...DEFAULT_LABELS,
+    ...this.service.config().labels,
+  }));
 
   // Core state signals
   protected readonly query = signal('');
@@ -184,6 +247,20 @@ export class GigamenuComponent {
     @Inject(PLATFORM_ID) platformId: object
   ) {
     this.isBrowser = isPlatformBrowser(platformId);
+
+    // Track the dark mode class on <html> (class name is configurable)
+    if (this.isBrowser) {
+      const root = document.documentElement;
+      const sync = () =>
+        this.dark.set(root.classList.contains(this.service.config().darkModeClass ?? 'dark'));
+      const observer = new MutationObserver(sync);
+      observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+      inject(DestroyRef).onDestroy(() => observer.disconnect());
+      effect(() => {
+        this.service.config();
+        untracked(sync);
+      });
+    }
 
     // Focus effect
     effect(() => {

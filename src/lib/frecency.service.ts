@@ -1,5 +1,6 @@
-import { Injectable, PLATFORM_ID, Inject } from '@angular/core';
+import { Injectable, PLATFORM_ID, Inject, inject } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { GigamenuService } from './gigamenu.service';
 
 interface FrecencyEntry {
   itemId: string;
@@ -21,6 +22,7 @@ const DECAY_FACTOR = 0.9;
 export class FrecencyService {
   private data: FrecencyData = {};
   private readonly isBrowser: boolean;
+  private readonly gigamenu = inject(GigamenuService);
 
   constructor(@Inject(PLATFORM_ID) platformId: object) {
     this.isBrowser = isPlatformBrowser(platformId);
@@ -31,6 +33,7 @@ export class FrecencyService {
    * Record that an item was selected for a given search term.
    */
   recordSelection(searchTerm: string, itemId: string): void {
+    if (!this.enabled) return;
     // Always record to global for overall frecency
     this.recordToKey(GLOBAL_KEY, itemId);
 
@@ -74,6 +77,7 @@ export class FrecencyService {
    */
   getScores(searchTerm: string): Map<string, number> {
     const scores = new Map<string, number>();
+    if (!this.enabled) return scores;
     const normalizedTerm = this.normalizeTerm(searchTerm);
 
     // If no search term, return global scores
@@ -116,6 +120,7 @@ export class FrecencyService {
    * Returns itemId if there's a strong match, null otherwise.
    */
   getTopMatch(searchTerm: string): string | null {
+    if (!this.enabled) return null;
     const normalizedTerm = this.normalizeTerm(searchTerm);
     if (!normalizedTerm) return null;
 
@@ -131,6 +136,11 @@ export class FrecencyService {
     }
 
     return null;
+  }
+
+  /** Disabled via `frecency: false` in the config (reactive, reads a signal). */
+  private get enabled(): boolean {
+    return this.gigamenu.config().frecency !== false;
   }
 
   private calculateScore(entry: FrecencyEntry): number {

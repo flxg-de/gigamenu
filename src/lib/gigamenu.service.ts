@@ -1,4 +1,4 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, Injector, inject, signal, computed } from '@angular/core';
 import { Router, Routes } from '@angular/router';
 import {
   GigamenuItem,
@@ -25,6 +25,7 @@ const DEFAULT_PROVIDER_OPTIONS: Required<GigamenuProviderOptions> = {
 
 @Injectable({ providedIn: 'root' })
 export class GigamenuService {
+  private readonly injector = inject(Injector);
   private _router?: Router;
 
   private readonly _items = signal<Map<string, GigamenuItem>>(new Map());
@@ -38,19 +39,15 @@ export class GigamenuService {
   readonly config = this._config.asReadonly();
 
   /**
-   * Set the router instance. Must be called before using navigation features.
+   * Optionally set the router instance. By default the router is injected lazily
+   * on first use, so calling this is only needed to use a different instance.
    */
   setRouter(router: Router): void {
     this._router = router;
   }
 
   private get router(): Router {
-    if (!this._router) {
-      throw new Error(
-        'GigamenuService: Router not set. Call setRouter() in your app initialization.'
-      );
-    }
-    return this._router;
+    return (this._router ??= this.injector.get(Router));
   }
 
   configure(config: Partial<GigamenuConfig>): void {
@@ -149,17 +146,18 @@ export class GigamenuService {
           // Replace each parameter with corresponding arg value
           paramsToReplace.forEach((param, index) => {
             if (argValues[index]) {
-              path = path.replace(`:${param}`, argValues[index]);
+              path = path.replace(`:${param}`, encodeURIComponent(argValues[index]));
             }
           });
         }
-        this.router.navigate([path]);
+        // Parse as a full URL so `#fragment` and `?query` parts are supported
+        this.router.navigateByUrl(this.router.parseUrl(path));
       },
     });
   }
 
   private extractParamNames(path: string): string[] {
-    const paramRegex = /:([^/]+)/g;
+    const paramRegex = /:([^/?#]+)/g;
     const params: string[] = [];
     let match;
     while ((match = paramRegex.exec(path)) !== null) {

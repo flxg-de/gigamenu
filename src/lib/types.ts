@@ -72,13 +72,13 @@ export interface GigamenuProviderOptions {
   group?: string;
 }
 
-/** Colors for parameter highlighting */
+/** Colors for parameter highlighting (themeable via --gm-param-1 ... --gm-param-5) */
 export const PARAM_COLORS = [
-  'text-blue-500 dark:text-blue-400',
-  'text-green-500 dark:text-green-400',
-  'text-orange-500 dark:text-orange-400',
-  'text-pink-500 dark:text-pink-400',
-  'text-cyan-500 dark:text-cyan-400',
+  'text-(color:--_gm-param-1)',
+  'text-(color:--_gm-param-2)',
+  'text-(color:--_gm-param-3)',
+  'text-(color:--_gm-param-4)',
+  'text-(color:--_gm-param-5)',
 ] as const;
 
 export interface GigamenuPage extends Omit<GigamenuItem, 'category' | 'action'> {
@@ -101,7 +101,53 @@ export interface GigamenuConfig {
   autocompleteTabBehavior?: 'cycle' | 'accept-first';
   /** When to dismiss autocomplete overlay: 'on-type' hides on any keystroke, 'manual' only on Escape/selection (default: 'on-type') */
   autocompleteDismiss?: 'on-type' | 'manual';
+  /** Rank results by usage (frecency) and persist it to localStorage (default: true) */
+  frecency?: boolean;
+  /** Show the footer with key hints and branding (default: true) */
+  showFooter?: boolean;
+  /** Show the category tag ("page" / "command") on each item (default: true) */
+  showCategoryTags?: boolean;
+  /** Override built-in texts. Unset keys keep their defaults. */
+  labels?: GigamenuLabels;
 }
+
+export interface GigamenuLabels {
+  /** Fallback icon badge for items without icon, pages (default: 'P') */
+  pageBadge?: string;
+  /** Fallback icon badge for items without icon, commands (default: 'C') */
+  commandBadge?: string;
+  /** Category tag of pages (default: 'page') */
+  pageTag?: string;
+  /** Category tag of commands (default: 'command') */
+  commandTag?: string;
+  /** Hint shown next to items with parameter autocomplete (default: 'Tab') */
+  paramHint?: string;
+  /** Branding text at the right of the footer; empty string hides it (default: 'gigamenu') */
+  footerBrand?: string;
+  /** Empty state text (default: 'No results found') */
+  noResults?: string;
+  /** Footer key hints */
+  navigate?: string;
+  params?: string;
+  next?: string;
+  select?: string;
+  execute?: string;
+}
+
+export const DEFAULT_LABELS: Required<GigamenuLabels> = {
+  pageBadge: 'P',
+  commandBadge: 'C',
+  pageTag: 'page',
+  commandTag: 'command',
+  paramHint: 'Tab',
+  footerBrand: 'gigamenu',
+  noResults: 'No results found',
+  navigate: 'navigate',
+  params: 'params',
+  next: 'next',
+  select: 'select',
+  execute: 'execute',
+};
 
 export const DEFAULT_CONFIG: GigamenuConfig = {
   placeholder: 'Search pages and commands...',
@@ -111,6 +157,9 @@ export const DEFAULT_CONFIG: GigamenuConfig = {
   darkModeClass: 'dark',
   autocompleteTabBehavior: 'cycle',
   autocompleteDismiss: 'on-type',
+  frecency: true,
+  showFooter: true,
+  showCategoryTags: true,
 };
 
 /**

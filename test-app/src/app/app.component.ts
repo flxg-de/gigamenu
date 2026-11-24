@@ -1,5 +1,5 @@
 import { Component, inject, OnInit } from '@angular/core';
-import { Router, RouterOutlet } from '@angular/router';
+import { RouterOutlet } from '@angular/router';
 import { GigamenuComponent, GigamenuService } from '@flxgde/gigamenu';
 
 @Component({
@@ -26,12 +26,8 @@ import { GigamenuComponent, GigamenuService } from '@flxgde/gigamenu';
 })
 export class AppComponent implements OnInit {
   private readonly gigamenu = inject(GigamenuService);
-  private readonly router = inject(Router);
 
   ngOnInit(): void {
-    // Set the router for navigation features
-    this.gigamenu.setRouter(this.router);
-
     // Configure the menu
     this.gigamenu.configure({
       placeholder: 'Search pages and commands...',
@@ -44,6 +40,13 @@ export class AppComponent implements OnInit {
         // Exclude /users/:id since we register it manually with autocomplete
         return route.fullPath !== '/users/:id';
       },
+    });
+
+    // Page path with fragment and query string
+    this.gigamenu.registerPage({
+      id: 'page:about-team',
+      path: '/about?tab=team#members',
+      label: 'About: Team',
     });
 
     // Register some custom commands
